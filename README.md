@@ -9,7 +9,7 @@ nearest valid panorama beside a Google Map.
 ## Features
 
 - Random Street View start point
-- Free movement inside the Google Street View iframe
+- Free movement inside the Google Street View iframe, loaded by panorama ID
 - Google Map shown next to the current start point
 - Server-side metadata lookup so the metadata key is not exposed to browser code
 - No Maps JavaScript API or Dynamic Street View usage
@@ -22,8 +22,8 @@ Create two API keys in Google Cloud:
    - Enable API: Maps Embed API
    - Application restriction: Websites
    - Allowed referrers:
-     - `http://localhost:*/*`
-     - `http://127.0.0.1:*/*`
+     - `http://localhost:5173/*`
+     - `http://127.0.0.1:5173/*`
    - API restriction: Maps Embed API
 
 2. Metadata key

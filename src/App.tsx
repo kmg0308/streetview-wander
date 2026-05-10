@@ -35,7 +35,7 @@ function formatCoord(value: number) {
 function buildStreetViewUrl(panorama: Panorama) {
   const params = new URLSearchParams({
     key: embedKey ?? '',
-    location: `${panorama.location.lat},${panorama.location.lng}`,
+    pano: panorama.panoId,
     heading: String(panorama.heading),
     pitch: String(panorama.pitch),
     fov: String(panorama.fov),
