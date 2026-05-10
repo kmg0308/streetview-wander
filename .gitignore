@@ -14,6 +14,7 @@ dist-ssr
 .env.*
 !.env.example
 *.local
+.streetview-history/
 
 # Editor directories and files
 .vscode/*
