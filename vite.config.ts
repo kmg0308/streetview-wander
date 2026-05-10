@@ -15,6 +15,26 @@ type Bounds = {
   weight: number
 }
 
+type Coordinate = [number, number]
+
+type CountryPart = {
+  bbox: [number, number, number, number]
+  weight: number
+  outer: Coordinate[]
+  holes: Coordinate[][]
+}
+
+type CountryArea = {
+  id: string
+  code: string
+  name: string
+  continent: string
+  subregion: string
+  population: number
+  weight: number
+  parts: CountryPart[]
+}
+
 type PanoramaMetadata = {
   status: string
   pano_id?: string
@@ -43,6 +63,9 @@ type RandomPanorama = {
   date?: string
   copyright?: string
   areaLabel: string
+  scopeLabel: string
+  continentLabel?: string
+  countryLabel?: string
   attempts: number
 }
 
@@ -428,11 +451,14 @@ const TOTAL_SEARCH_WEIGHT = SEARCH_AREAS.reduce(
 )
 
 const MAX_ATTEMPTS = 90
+const POINT_SAMPLE_ATTEMPTS = 40
 const HISTORY_DIR = '.streetview-history'
 const HISTORY_FILE = 'history.json'
 const HISTORY_LIMIT = 1000
+const COUNTRY_DATA_FILE = 'data/countries.json'
 
 let historyWriteQueue: Promise<void> = Promise.resolve()
+const countryDataCache = new Map<string, Promise<CountryArea[]>>()
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
@@ -467,10 +493,144 @@ function pickPoint(bounds: Bounds) {
   }
 }
 
+function pickWeighted<T extends { weight: number }>(items: T[]) {
+  const totalWeight = items.reduce((total, item) => total + item.weight, 0)
+  let threshold = Math.random() * totalWeight
+
+  for (const item of items) {
+    threshold -= item.weight
+
+    if (threshold <= 0) {
+      return item
+    }
+  }
+
+  return items[items.length - 1]
+}
+
+function isPointInRing(point: { lat: number; lng: number }, ring: Coordinate[]) {
+  let isInside = false
+
+  for (
+    let index = 0, previousIndex = ring.length - 1;
+    index < ring.length;
+    previousIndex = index, index += 1
+  ) {
+    const [currentLng, currentLat] = ring[index]
+    const [previousLng, previousLat] = ring[previousIndex]
+    const crossesLatitude = currentLat > point.lat !== previousLat > point.lat
+
+    if (!crossesLatitude) {
+      continue
+    }
+
+    const intersectionLng =
+      ((previousLng - currentLng) * (point.lat - currentLat)) /
+        (previousLat - currentLat) +
+      currentLng
+
+    if (point.lng < intersectionLng) {
+      isInside = !isInside
+    }
+  }
+
+  return isInside
+}
+
+function isPointInCountryPart(
+  point: { lat: number; lng: number },
+  part: CountryPart,
+) {
+  return (
+    isPointInRing(point, part.outer) &&
+    part.holes.every((hole) => !isPointInRing(point, hole))
+  )
+}
+
+function pickPointInCountryPart(part: CountryPart) {
+  const [west, south, east, north] = part.bbox
+
+  for (let attempt = 0; attempt < POINT_SAMPLE_ATTEMPTS; attempt += 1) {
+    const point = {
+      lat: randomInRange(south, north),
+      lng: randomInRange(west, east),
+    }
+
+    if (isPointInCountryPart(point, part)) {
+      return point
+    }
+  }
+
+  return null
+}
+
+function pickPointInCountry(country: CountryArea) {
+  for (let attempt = 0; attempt < POINT_SAMPLE_ATTEMPTS; attempt += 1) {
+    const part = pickWeighted(country.parts)
+    const point = pickPointInCountryPart(part)
+
+    if (point) {
+      return point
+    }
+  }
+
+  throw new Error(`Could not sample a point inside ${country.name}.`)
+}
+
 function sendJson(response: ServerResponse, statusCode: number, body: unknown) {
   response.statusCode = statusCode
   response.setHeader('Content-Type', 'application/json')
   response.end(JSON.stringify(body))
+}
+
+async function readCountryAreas(root: string) {
+  if (!countryDataCache.has(root)) {
+    const countryDataPath = join(root, COUNTRY_DATA_FILE)
+    countryDataCache.set(
+      root,
+      readFile(countryDataPath, 'utf8').then((file) => {
+        const parsed = JSON.parse(file) as unknown
+
+        if (!Array.isArray(parsed)) {
+          throw new Error('Country data must be an array.')
+        }
+
+        return parsed as CountryArea[]
+      }),
+    )
+  }
+
+  return countryDataCache.get(root)!
+}
+
+function getLocationOptions(countries: CountryArea[]) {
+  const continentCounts = new Map<string, number>()
+
+  for (const country of countries) {
+    continentCounts.set(
+      country.continent,
+      (continentCounts.get(country.continent) ?? 0) + 1,
+    )
+  }
+
+  return {
+    continents: Array.from(continentCounts.entries())
+      .map(([id, countryCount]) => ({
+        id,
+        label: id,
+        countryCount,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label)),
+    countries: countries
+      .map((country) => ({
+        id: country.id,
+        code: country.code,
+        label: country.name,
+        continent: country.continent,
+        subregion: country.subregion,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label)),
+  }
 }
 
 async function readHistory(root: string): Promise<HistoryEntry[]> {
@@ -529,13 +689,124 @@ async function getMetadata(apiKey: string, location: { lat: number; lng: number 
   return (await response.json()) as PanoramaMetadata
 }
 
-async function findRandomPanorama(apiKey: string): Promise<RandomPanorama> {
+type SearchScopeRequest = {
+  continent?: string
+  country?: string
+}
+
+type SearchScope =
+  | {
+      kind: 'global'
+      label: string
+    }
+  | {
+      kind: 'countries'
+      label: string
+      countries: CountryArea[]
+      selectedCountry?: CountryArea
+    }
+
+type SearchCandidate = {
+  requestedLocation: {
+    lat: number
+    lng: number
+  }
+  areaLabel: string
+  scopeLabel: string
+  continentLabel?: string
+  countryLabel?: string
+}
+
+function parseSearchScope(requestUrl: string | undefined): SearchScopeRequest {
+  const url = new URL(requestUrl ?? '/', 'http://localhost')
+
+  return {
+    continent: url.searchParams.get('continent')?.trim() || undefined,
+    country: url.searchParams.get('country')?.trim() || undefined,
+  }
+}
+
+function resolveCountryScope(
+  countries: CountryArea[],
+  scope: SearchScopeRequest,
+): SearchScope {
+  if (scope.country) {
+    const selectedCountry = countries.find(
+      (country) => country.id === scope.country,
+    )
+
+    if (!selectedCountry) {
+      throw new Error(`Unknown country: ${scope.country}`)
+    }
+
+    if (scope.continent && selectedCountry.continent !== scope.continent) {
+      throw new Error(`${selectedCountry.name} is not in ${scope.continent}.`)
+    }
+
+    return {
+      kind: 'countries',
+      label: selectedCountry.name,
+      countries: [selectedCountry],
+      selectedCountry,
+    }
+  }
+
+  if (scope.continent) {
+    const scopedCountries = countries.filter(
+      (country) => country.continent === scope.continent,
+    )
+
+    if (scopedCountries.length === 0) {
+      throw new Error(`Unknown continent: ${scope.continent}`)
+    }
+
+    return {
+      kind: 'countries',
+      label: scope.continent,
+      countries: scopedCountries,
+    }
+  }
+
+  return {
+    kind: 'global',
+    label: 'World',
+  }
+}
+
+function pickSearchCandidate(scope: SearchScope): SearchCandidate {
+  if (scope.kind === 'global') {
+    const area = pickSearchArea()
+
+    return {
+      requestedLocation: pickPoint(area),
+      areaLabel: area.label,
+      scopeLabel: scope.label,
+    }
+  }
+
+  const country = pickWeighted(scope.countries)
+  const areaLabel = scope.selectedCountry
+    ? country.name
+    : `${scope.label} · ${country.name}`
+
+  return {
+    requestedLocation: pickPointInCountry(country),
+    areaLabel,
+    scopeLabel: scope.label,
+    continentLabel: country.continent,
+    countryLabel: country.name,
+  }
+}
+
+async function findRandomPanorama(
+  apiKey: string,
+  searchScope: SearchScope,
+): Promise<RandomPanorama> {
   let lastStatus = 'NO_ATTEMPTS'
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const area = pickSearchArea()
-    const requestedLocation = pickPoint(area)
-    const metadata = await getMetadata(apiKey, requestedLocation)
+    const candidate = pickSearchCandidate(searchScope)
+    const metadata = await getMetadata(apiKey, candidate.requestedLocation)
 
     lastStatus = metadata.error_message ?? metadata.status
 
@@ -543,13 +814,16 @@ async function findRandomPanorama(apiKey: string): Promise<RandomPanorama> {
       return {
         panoId: metadata.pano_id,
         location: metadata.location,
-        requestedLocation,
+        requestedLocation: candidate.requestedLocation,
         heading: Math.floor(Math.random() * 360),
         pitch: 0,
         fov: 85,
         date: metadata.date,
         copyright: metadata.copyright,
-        areaLabel: area.label,
+        areaLabel: candidate.areaLabel,
+        scopeLabel: candidate.scopeLabel,
+        continentLabel: candidate.continentLabel,
+        countryLabel: candidate.countryLabel,
         attempts: attempt,
       }
     }
@@ -564,6 +838,23 @@ function randomStreetViewApi(): Plugin {
     configureServer(server) {
       const env = loadEnv(server.config.mode, server.config.root, '')
       const apiKey = env.GOOGLE_STREET_VIEW_METADATA_API_KEY
+
+      server.middlewares.use('/api/location-options', async (request, response) => {
+        if (request.method !== 'GET') {
+          sendJson(response, 405, { error: 'Only GET is supported.' })
+          return
+        }
+
+        try {
+          const countries = await readCountryAreas(server.config.root)
+          sendJson(response, 200, getLocationOptions(countries))
+        } catch (error) {
+          sendJson(response, 500, {
+            error: 'Could not read location options.',
+            details: error instanceof Error ? error.message : String(error),
+          })
+        }
+      })
 
       server.middlewares.use('/api/history', async (request, response) => {
         if (request.method !== 'GET') {
@@ -595,7 +886,12 @@ function randomStreetViewApi(): Plugin {
         }
 
         try {
-          const panorama = await findRandomPanorama(apiKey)
+          const countries = await readCountryAreas(server.config.root)
+          const searchScope = resolveCountryScope(
+            countries,
+            parseSearchScope(request.url),
+          )
+          const panorama = await findRandomPanorama(apiKey, searchScope)
           await appendHistory(server.config.root, panorama)
           sendJson(response, 200, panorama)
         } catch (error) {

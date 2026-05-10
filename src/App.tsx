@@ -16,12 +16,34 @@ type Panorama = {
   date?: string
   copyright?: string
   areaLabel: string
+  scopeLabel?: string
+  continentLabel?: string
+  countryLabel?: string
   attempts: number
 }
 
 type HistoryEntry = Panorama & {
   id: string
   visitedAt: string
+}
+
+type ContinentOption = {
+  id: string
+  label: string
+  countryCount: number
+}
+
+type CountryOption = {
+  id: string
+  code: string
+  label: string
+  continent: string
+  subregion: string
+}
+
+type LocationOptions = {
+  continents: ContinentOption[]
+  countries: CountryOption[]
 }
 
 type ApiError = {
@@ -130,6 +152,25 @@ async function readApiError(response: Response) {
   } catch {
     return `Request failed with ${response.status}`
   }
+}
+
+function findOptionByLabel<T extends { id: string; label: string }>(
+  options: T[],
+  value: string,
+) {
+  const normalizedValue = value.trim().toLocaleLowerCase()
+
+  if (!normalizedValue) {
+    return null
+  }
+
+  return (
+    options.find(
+      (option) =>
+        option.label.toLocaleLowerCase() === normalizedValue ||
+        option.id.toLocaleLowerCase() === normalizedValue,
+    ) ?? null
+  )
 }
 
 function loadGoogleMaps(apiKey: string) {
@@ -333,14 +374,144 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([])
+  const [locationOptions, setLocationOptions] = useState<LocationOptions>({
+    continents: [],
+    countries: [],
+  })
+  const [locationOptionsError, setLocationOptionsError] = useState<string | null>(
+    null,
+  )
+  const [selectedContinentId, setSelectedContinentId] = useState('')
+  const [selectedCountryId, setSelectedCountryId] = useState('')
+  const [continentInput, setContinentInput] = useState('')
+  const [countryInput, setCountryInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [activePanel, setActivePanel] = useState<PanelMode>(null)
   const [isMapExpanded, setIsMapExpanded] = useState(true)
+  const [isScopePanelOpen, setIsScopePanelOpen] = useState(false)
 
   const canRenderMaps = Boolean(googleMapsKey)
 
   const isDetailsOpen = activePanel === 'details'
   const isHistoryOpen = activePanel === 'history'
+  const countryOptions = selectedContinentId
+    ? locationOptions.countries.filter(
+        (country) => country.continent === selectedContinentId,
+      )
+    : locationOptions.countries
+  const selectedContinent = locationOptions.continents.find(
+    (continent) => continent.id === selectedContinentId,
+  )
+  const selectedCountry = locationOptions.countries.find(
+    (country) => country.id === selectedCountryId,
+  )
+  const selectedScopeLabel =
+    selectedCountry?.label ?? selectedContinent?.label ?? 'Worldwide'
+
+  useEffect(() => {
+    let isCancelled = false
+
+    void fetch('/api/location-options')
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(await readApiError(response))
+        }
+
+        return (await response.json()) as LocationOptions
+      })
+      .then((nextLocationOptions) => {
+        if (isCancelled) {
+          return
+        }
+
+        setLocationOptions(nextLocationOptions)
+        setLocationOptionsError(null)
+      })
+      .catch((caughtError: unknown) => {
+        if (isCancelled) {
+          return
+        }
+
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Could not load location filters.'
+        setLocationOptionsError(message)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
+
+  const clearContinent = useCallback(() => {
+    setSelectedContinentId('')
+    setSelectedCountryId('')
+    setContinentInput('')
+    setCountryInput('')
+  }, [])
+
+  const clearCountry = useCallback(() => {
+    setSelectedCountryId('')
+    setCountryInput('')
+  }, [])
+
+  const updateContinentInput = useCallback(
+    (nextValue: string) => {
+      setContinentInput(nextValue)
+
+      if (!nextValue.trim()) {
+        setSelectedContinentId('')
+        setSelectedCountryId('')
+        setCountryInput('')
+        return
+      }
+
+      const matchedContinent = findOptionByLabel(
+        locationOptions.continents,
+        nextValue,
+      )
+
+      if (!matchedContinent) {
+        setSelectedContinentId('')
+        setSelectedCountryId('')
+        setCountryInput('')
+        return
+      }
+
+      setSelectedContinentId(matchedContinent.id)
+
+      if (selectedCountry && selectedCountry.continent !== matchedContinent.id) {
+        setSelectedCountryId('')
+        setCountryInput('')
+      }
+    },
+    [locationOptions.continents, selectedCountry],
+  )
+
+  const updateCountryInput = useCallback(
+    (nextValue: string) => {
+      setCountryInput(nextValue)
+
+      if (!nextValue.trim()) {
+        setSelectedCountryId('')
+        return
+      }
+
+      const matchedCountry = findOptionByLabel(countryOptions, nextValue)
+
+      if (!matchedCountry) {
+        setSelectedCountryId('')
+        return
+      }
+
+      setSelectedCountryId(matchedCountry.id)
+      setSelectedContinentId(matchedCountry.continent)
+      setContinentInput(matchedCountry.continent)
+      setCountryInput(matchedCountry.label)
+    },
+    [countryOptions],
+  )
 
   const loadHistory = useCallback(async () => {
     try {
@@ -367,7 +538,20 @@ function App() {
     setError(null)
 
     try {
-      const response = await fetch('/api/random-panorama')
+      const params = new URLSearchParams()
+
+      if (selectedContinentId) {
+        params.set('continent', selectedContinentId)
+      }
+
+      if (selectedCountryId) {
+        params.set('country', selectedCountryId)
+      }
+
+      const queryString = params.toString()
+      const response = await fetch(
+        `/api/random-panorama${queryString ? `?${queryString}` : ''}`,
+      )
 
       if (!response.ok) {
         throw new Error(await readApiError(response))
@@ -375,6 +559,7 @@ function App() {
 
       const nextPanorama = (await response.json()) as Panorama
       setPanorama(nextPanorama)
+      setIsScopePanelOpen(false)
       void loadHistory()
     } catch (caughtError) {
       const message =
@@ -385,15 +570,31 @@ function App() {
     } finally {
       setIsLoading(false)
     }
-  }, [loadHistory])
+  }, [loadHistory, selectedContinentId, selectedCountryId])
 
   const placeDetails = panorama ? (
     <>
       <dl>
         <div>
+          <dt>Scope</dt>
+          <dd>{panorama.scopeLabel ?? 'World'}</dd>
+        </div>
+        <div>
           <dt>Area</dt>
           <dd>{panorama.areaLabel}</dd>
         </div>
+        {panorama.countryLabel ? (
+          <div>
+            <dt>Country</dt>
+            <dd>{panorama.countryLabel}</dd>
+          </div>
+        ) : null}
+        {panorama.continentLabel ? (
+          <div>
+            <dt>Continent</dt>
+            <dd>{panorama.continentLabel}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Latitude</dt>
           <dd>{formatCoord(panorama.location.lat)}</dd>
@@ -468,6 +669,17 @@ function App() {
         </button>
         <button
           type="button"
+          className="scope-action"
+          aria-expanded={isScopePanelOpen}
+          aria-controls="location-filter"
+          title={`Scope: ${selectedScopeLabel}`}
+          onClick={() => setIsScopePanelOpen((currentValue) => !currentValue)}
+        >
+          <span>Scope</span>
+          <strong>{selectedScopeLabel}</strong>
+        </button>
+        <button
+          type="button"
           className="primary-action"
           onClick={() => void loadRandomPanorama()}
           disabled={isLoading}
@@ -475,6 +687,89 @@ function App() {
           {isLoading ? 'Finding...' : 'Random place'}
         </button>
       </div>
+
+      {isScopePanelOpen ? (
+        <section
+          id="location-filter"
+          className="location-filter"
+          aria-label="Random place filters"
+        >
+          <header className="scope-panel-header">
+            <h2>Random scope</h2>
+            <button
+              type="button"
+              className="scope-close"
+              onClick={() => setIsScopePanelOpen(false)}
+            >
+              Done
+            </button>
+          </header>
+
+          <div className="scope-field">
+            <label htmlFor="continent-filter">Continent</label>
+            <div className="scope-input-row">
+              <input
+                id="continent-filter"
+                type="search"
+                list="continent-options"
+                placeholder="Worldwide"
+                value={continentInput}
+                onChange={(event) => updateContinentInput(event.target.value)}
+              />
+              {selectedContinentId ? (
+                <button
+                  type="button"
+                  className="scope-clear"
+                  onClick={clearContinent}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <datalist id="continent-options">
+              {locationOptions.continents.map((continent) => (
+                <option key={continent.id} value={continent.label} />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="scope-field">
+            <label htmlFor="country-filter">Country</label>
+            <div className="scope-input-row">
+              <input
+                id="country-filter"
+                type="search"
+                list="country-options"
+                placeholder="All countries"
+                value={countryInput}
+                onChange={(event) => updateCountryInput(event.target.value)}
+              />
+              {selectedCountryId ? (
+                <button
+                  type="button"
+                  className="scope-clear"
+                  onClick={clearCountry}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <datalist id="country-options">
+              {countryOptions.map((country) => (
+                <option
+                  key={country.id}
+                  value={country.label}
+                  label={`${country.continent} · ${country.subregion}`}
+                />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="scope-current">
+            {locationOptionsError ?? selectedScopeLabel}
+          </div>
+        </section>
+      ) : null}
 
       {!canRenderMaps ? (
         <section className="setup-panel" aria-live="polite">

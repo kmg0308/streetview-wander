@@ -9,6 +9,7 @@ nearest valid panorama with a floating Google Map.
 ## Features
 
 - Random Street View start point
+- Searchable continent and country filters for the next random place
 - Free movement inside full-screen Google Street View, loaded by panorama ID
 - Floating Google Map for the current start point, with wheel zoom enabled
 - Minimal controls so Street View stays as the main full-screen view
@@ -19,6 +20,9 @@ The random picker uses broad weighted regions across North America, Europe,
 Asia, Oceania, South America, Africa, and island regions. Google does not expose
 a downloadable list of every Street View panorama, so the app still verifies each
 random coordinate with the Street View metadata endpoint before opening it.
+When a continent or country filter is selected, the app samples from local
+Natural Earth country boundary data before running the Street View metadata
+check.
 
 ## Google Cloud setup
 
