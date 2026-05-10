@@ -24,6 +24,8 @@ type ApiError = {
   details?: string
 }
 
+type MapMode = 'floating' | 'side' | 'hidden'
+
 const embedKey = import.meta.env.VITE_GOOGLE_MAPS_EMBED_API_KEY as
   | string
   | undefined
@@ -77,6 +79,7 @@ function App() {
   const [panorama, setPanorama] = useState<Panorama | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [mapMode, setMapMode] = useState<MapMode>('floating')
 
   const canRenderMaps = Boolean(embedKey)
 
@@ -120,23 +123,114 @@ function App() {
     return buildMapUrl(panorama)
   }, [canRenderMaps, panorama])
 
+  const placeDetails = panorama ? (
+    <>
+      <dl>
+        <div>
+          <dt>Area</dt>
+          <dd>{panorama.areaLabel}</dd>
+        </div>
+        <div>
+          <dt>Latitude</dt>
+          <dd>{formatCoord(panorama.location.lat)}</dd>
+        </div>
+        <div>
+          <dt>Longitude</dt>
+          <dd>{formatCoord(panorama.location.lng)}</dd>
+        </div>
+        <div>
+          <dt>Attempts</dt>
+          <dd>{panorama.attempts}</dd>
+        </div>
+        {panorama.date ? (
+          <div>
+            <dt>Image date</dt>
+            <dd>{panorama.date}</dd>
+          </div>
+        ) : null}
+      </dl>
+
+      <a
+        className="secondary-action"
+        href={buildMapsLink(panorama)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Open in Google Maps
+      </a>
+    </>
+  ) : (
+    <p className="muted">Pick a random place to begin.</p>
+  )
+
+  const mapFrame = mapUrl ? (
+    <iframe
+      title="Google Map for current Street View"
+      src={mapUrl}
+      allowFullScreen
+      loading="eager"
+      referrerPolicy="no-referrer-when-downgrade"
+    />
+  ) : (
+    <div className="empty-state">Map will appear here.</div>
+  )
+
   return (
     <main className="app-shell">
-      <header className="top-bar">
-        <div>
-          <p className="eyebrow">Local Street View explorer</p>
-          <h1>StreetView Wander</h1>
-        </div>
+      <section className="street-view-stage" aria-label="Street View">
+        {streetViewUrl ? (
+          <iframe
+            title="Random Google Street View"
+            src={streetViewUrl}
+            allowFullScreen
+            loading="eager"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
+        ) : (
+          <div className="empty-state">Street View will appear here.</div>
+        )}
+      </section>
 
+      <div className="title-chip">
+        <span>StreetView Wander</span>
+        {panorama ? <small>{panorama.areaLabel}</small> : null}
+      </div>
+
+      <div className="map-controls" aria-label="Map display controls">
         <button
           type="button"
-          className="primary-action"
-          onClick={() => void loadRandomPanorama()}
-          disabled={isLoading}
+          className="mode-action"
+          aria-pressed={mapMode === 'floating'}
+          onClick={() => setMapMode('floating')}
         >
-          {isLoading ? 'Finding...' : 'Random place'}
+          Map
         </button>
-      </header>
+        <button
+          type="button"
+          className="mode-action"
+          aria-pressed={mapMode === 'side'}
+          onClick={() => setMapMode('side')}
+        >
+          Details
+        </button>
+        <button
+          type="button"
+          className="mode-action"
+          aria-pressed={mapMode === 'hidden'}
+          onClick={() => setMapMode('hidden')}
+        >
+          Hide
+        </button>
+      </div>
+
+      <button
+        type="button"
+        className="primary-action"
+        onClick={() => void loadRandomPanorama()}
+        disabled={isLoading}
+      >
+        {isLoading ? 'Finding...' : 'Random place'}
+      </button>
 
       {!canRenderMaps ? (
         <section className="setup-panel" aria-live="polite">
@@ -155,80 +249,32 @@ function App() {
         </section>
       ) : null}
 
-      <section className="viewer-grid">
-        <div className="viewer-pane street-view-pane">
-          {streetViewUrl ? (
-            <iframe
-              title="Random Google Street View"
-              src={streetViewUrl}
-              allowFullScreen
-              loading="eager"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          ) : (
-            <div className="empty-state">Street View will appear here.</div>
-          )}
-        </div>
+      {mapMode === 'floating' && mapUrl ? (
+        <aside className="floating-map" aria-label="Floating map">
+          {mapFrame}
+        </aside>
+      ) : null}
 
-        <aside className="map-side">
-          <div className="viewer-pane map-pane">
-            {mapUrl ? (
-              <iframe
-                title="Google Map for current Street View"
-                src={mapUrl}
-                allowFullScreen
-                loading="eager"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            ) : (
-              <div className="empty-state">Map will appear here.</div>
-            )}
-          </div>
+      {mapMode === 'side' ? (
+        <aside className="side-panel" aria-label="Current location details">
+          <header className="side-panel-header">
+            <h2>Current start point</h2>
+            <button
+              type="button"
+              className="plain-action"
+              onClick={() => setMapMode('hidden')}
+            >
+              Hide
+            </button>
+          </header>
+
+          <div className="panel-map">{mapFrame}</div>
 
           <div className="place-details">
-            <h2>Current start point</h2>
-            {panorama ? (
-              <>
-                <dl>
-                  <div>
-                    <dt>Area</dt>
-                    <dd>{panorama.areaLabel}</dd>
-                  </div>
-                  <div>
-                    <dt>Latitude</dt>
-                    <dd>{formatCoord(panorama.location.lat)}</dd>
-                  </div>
-                  <div>
-                    <dt>Longitude</dt>
-                    <dd>{formatCoord(panorama.location.lng)}</dd>
-                  </div>
-                  <div>
-                    <dt>Attempts</dt>
-                    <dd>{panorama.attempts}</dd>
-                  </div>
-                  {panorama.date ? (
-                    <div>
-                      <dt>Image date</dt>
-                      <dd>{panorama.date}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-
-                <a
-                  className="secondary-action"
-                  href={buildMapsLink(panorama)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open in Google Maps
-                </a>
-              </>
-            ) : (
-              <p className="muted">Pick a random place to begin.</p>
-            )}
+            {placeDetails}
           </div>
         </aside>
-      </section>
+      ) : null}
     </main>
   )
 }
