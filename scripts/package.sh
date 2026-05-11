@@ -21,7 +21,7 @@ if [[ -z "$DEFAULT_REPOSITORY" ]]; then
   DEFAULT_REPOSITORY="kmg0308/streetview-wander"
 fi
 
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 
 cd "$ROOT_DIR"

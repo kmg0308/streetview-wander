@@ -16,7 +16,7 @@ struct StreetViewWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
-        webView.loadHTMLString(Self.html, baseURL: URL(string: "http://127.0.0.1/"))
+        webView.loadHTMLString(Self.html, baseURL: URL(string: "http://127.0.0.1:5173/"))
         context.coordinator.webView = webView
         return webView
     }

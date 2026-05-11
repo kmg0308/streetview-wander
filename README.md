@@ -41,6 +41,9 @@ Create two API keys in Google Cloud:
 1. Browser key
    - Enable API: Maps JavaScript API
    - API restriction: Maps JavaScript API
+   - If you use website restrictions, allow:
+     - `http://127.0.0.1:5173/*`
+     - `http://localhost:5173/*`
    - Store it as `VITE_GOOGLE_MAPS_API_KEY`
 
 2. Metadata key
@@ -55,7 +58,7 @@ VITE_GOOGLE_MAPS_API_KEY=your_browser_key
 GOOGLE_STREET_VIEW_METADATA_API_KEY=your_metadata_key
 ```
 
-For the browser key, Google Maps JavaScript runs inside a macOS `WKWebView`. If you use website restrictions, allow local app origins such as `http://127.0.0.1/*`. If that is too strict for your Google Cloud setup, use API restrictions and keep the key private to your own Mac.
+For the browser key, Google Maps JavaScript runs inside a macOS `WKWebView` with a local base URL of `http://127.0.0.1:5173/`.
 
 ## Updates
 
