@@ -33,74 +33,104 @@ func drawIcon(size: Int) throws -> Data {
     let imageSize = NSSize(width: size, height: size)
     let image = NSImage(size: imageSize)
     image.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
 
     let rect = NSRect(origin: .zero, size: imageSize)
-    NSColor.black.setFill()
-    NSBezierPath(roundedRect: rect, xRadius: CGFloat(size) * 0.22, yRadius: CGFloat(size) * 0.22).fill()
+    NSColor.clear.setFill()
+    rect.fill()
+
+    let tileRect = rect.insetBy(dx: CGFloat(size) * 0.022, dy: CGFloat(size) * 0.022)
+    let tile = NSBezierPath(
+        roundedRect: tileRect,
+        xRadius: CGFloat(size) * 0.20,
+        yRadius: CGFloat(size) * 0.20
+    )
+    NSGradient(
+        starting: NSColor(red: 0.98, green: 0.99, blue: 1.00, alpha: 1),
+        ending: NSColor(red: 0.80, green: 0.86, blue: 0.91, alpha: 1)
+    )?.draw(in: tile, angle: -70)
 
     let globeRect = NSRect(
-        x: CGFloat(size) * 0.18,
-        y: CGFloat(size) * 0.18,
-        width: CGFloat(size) * 0.64,
-        height: CGFloat(size) * 0.64
+        x: CGFloat(size) * 0.10,
+        y: CGFloat(size) * 0.105,
+        width: CGFloat(size) * 0.80,
+        height: CGFloat(size) * 0.80
     )
+
+    let shadowRect = globeRect.offsetBy(dx: 0, dy: -CGFloat(size) * 0.016)
+    NSColor.black.withAlphaComponent(0.30).setFill()
+    NSBezierPath(ovalIn: shadowRect).fill()
+
     let globe = NSBezierPath(ovalIn: globeRect)
-    NSColor(red: 0.10, green: 0.42, blue: 0.88, alpha: 1).setFill()
-    globe.fill()
-
-    NSColor(red: 0.23, green: 0.77, blue: 0.48, alpha: 1).setFill()
-
-    let leftLand = NSBezierPath()
-    leftLand.move(to: NSPoint(x: CGFloat(size) * 0.32, y: CGFloat(size) * 0.62))
-    leftLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.43, y: CGFloat(size) * 0.42),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.23, y: CGFloat(size) * 0.56),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.30, y: CGFloat(size) * 0.45)
-    )
-    leftLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.47, y: CGFloat(size) * 0.68),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.55, y: CGFloat(size) * 0.47),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.55, y: CGFloat(size) * 0.63)
-    )
-    leftLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.32, y: CGFloat(size) * 0.62),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.42, y: CGFloat(size) * 0.72),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.36, y: CGFloat(size) * 0.70)
-    )
-    leftLand.fill()
-
-    let rightLand = NSBezierPath()
-    rightLand.move(to: NSPoint(x: CGFloat(size) * 0.61, y: CGFloat(size) * 0.70))
-    rightLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.72, y: CGFloat(size) * 0.52),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.72, y: CGFloat(size) * 0.69),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.78, y: CGFloat(size) * 0.60)
-    )
-    rightLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.57, y: CGFloat(size) * 0.33),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.66, y: CGFloat(size) * 0.44),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.66, y: CGFloat(size) * 0.35)
-    )
-    rightLand.curve(
-        to: NSPoint(x: CGFloat(size) * 0.61, y: CGFloat(size) * 0.70),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.49, y: CGFloat(size) * 0.40),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.51, y: CGFloat(size) * 0.63)
-    )
-    rightLand.fill()
-
+    NSGraphicsContext.saveGraphicsState()
     globe.addClip()
-    NSColor.white.withAlphaComponent(0.22).setStroke()
-    for ratio in [0.36, 0.50, 0.64] {
-        let y = CGFloat(size) * ratio
-        let line = NSBezierPath()
-        line.move(to: NSPoint(x: globeRect.minX + CGFloat(size) * 0.05, y: y))
-        line.line(to: NSPoint(x: globeRect.maxX - CGFloat(size) * 0.05, y: y))
-        line.lineWidth = max(1, CGFloat(size) * 0.012)
-        line.stroke()
+
+    NSGradient(
+        starting: NSColor(red: 0.05, green: 0.53, blue: 0.92, alpha: 1),
+        ending: NSColor(red: 0.02, green: 0.22, blue: 0.58, alpha: 1)
+    )?.draw(in: globe, angle: -35)
+
+    func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+        NSPoint(
+            x: globeRect.minX + globeRect.width * x,
+            y: globeRect.minY + globeRect.height * y
+        )
     }
 
-    NSColor.white.withAlphaComponent(0.30).setStroke()
-    globe.lineWidth = max(2, CGFloat(size) * 0.025)
+    func fillLand(_ color: NSColor, _ draw: (NSBezierPath) -> Void) {
+        let path = NSBezierPath()
+        draw(path)
+        path.close()
+        color.setFill()
+        path.fill()
+    }
+
+    let land = NSColor(red: 0.19, green: 0.70, blue: 0.36, alpha: 1)
+    let landDark = NSColor(red: 0.09, green: 0.54, blue: 0.29, alpha: 1)
+
+    fillLand(land) { path in
+        path.move(to: point(0.27, 0.77))
+        path.curve(to: point(0.16, 0.58), controlPoint1: point(0.17, 0.74), controlPoint2: point(0.11, 0.66))
+        path.curve(to: point(0.27, 0.45), controlPoint1: point(0.18, 0.50), controlPoint2: point(0.23, 0.48))
+        path.curve(to: point(0.38, 0.25), controlPoint1: point(0.33, 0.40), controlPoint2: point(0.31, 0.30))
+        path.curve(to: point(0.45, 0.38), controlPoint1: point(0.47, 0.27), controlPoint2: point(0.47, 0.33))
+        path.curve(to: point(0.39, 0.56), controlPoint1: point(0.44, 0.45), controlPoint2: point(0.36, 0.48))
+        path.curve(to: point(0.48, 0.72), controlPoint1: point(0.43, 0.64), controlPoint2: point(0.47, 0.67))
+        path.curve(to: point(0.27, 0.77), controlPoint1: point(0.40, 0.81), controlPoint2: point(0.33, 0.83))
+    }
+
+    fillLand(landDark) { path in
+        path.move(to: point(0.56, 0.79))
+        path.curve(to: point(0.80, 0.70), controlPoint1: point(0.64, 0.86), controlPoint2: point(0.73, 0.82))
+        path.curve(to: point(0.89, 0.54), controlPoint1: point(0.88, 0.67), controlPoint2: point(0.94, 0.61))
+        path.curve(to: point(0.74, 0.45), controlPoint1: point(0.84, 0.47), controlPoint2: point(0.79, 0.47))
+        path.curve(to: point(0.66, 0.21), controlPoint1: point(0.73, 0.34), controlPoint2: point(0.69, 0.25))
+        path.curve(to: point(0.53, 0.30), controlPoint1: point(0.58, 0.20), controlPoint2: point(0.52, 0.24))
+        path.curve(to: point(0.58, 0.51), controlPoint1: point(0.54, 0.39), controlPoint2: point(0.61, 0.42))
+        path.curve(to: point(0.48, 0.65), controlPoint1: point(0.55, 0.58), controlPoint2: point(0.47, 0.57))
+        path.curve(to: point(0.56, 0.79), controlPoint1: point(0.49, 0.72), controlPoint2: point(0.52, 0.75))
+    }
+
+    fillLand(land) { path in
+        path.move(to: point(0.76, 0.27))
+        path.curve(to: point(0.87, 0.19), controlPoint1: point(0.82, 0.28), controlPoint2: point(0.87, 0.25))
+        path.curve(to: point(0.73, 0.15), controlPoint1: point(0.84, 0.13), controlPoint2: point(0.78, 0.13))
+        path.curve(to: point(0.76, 0.27), controlPoint1: point(0.70, 0.20), controlPoint2: point(0.72, 0.25))
+    }
+
+    let highlightRect = NSRect(
+        x: globeRect.minX + globeRect.width * 0.12,
+        y: globeRect.minY + globeRect.height * 0.58,
+        width: globeRect.width * 0.36,
+        height: globeRect.height * 0.26
+    )
+    NSColor.white.withAlphaComponent(0.16).setFill()
+    NSBezierPath(ovalIn: highlightRect).fill()
+
+    NSGraphicsContext.restoreGraphicsState()
+
+    NSColor.white.withAlphaComponent(0.36).setStroke()
+    globe.lineWidth = max(2, CGFloat(size) * 0.018)
     globe.stroke()
 
     image.unlockFocus()

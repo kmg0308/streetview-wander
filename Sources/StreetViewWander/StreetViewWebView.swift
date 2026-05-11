@@ -91,11 +91,13 @@ struct StreetViewWebView: NSViewRepresentable {
           #streetview {
             position: absolute;
             inset: 0;
+            z-index: 0;
           }
           #mapPanel {
             position: absolute;
             right: 16px;
             bottom: 16px;
+            z-index: 2147483646;
             width: min(420px, calc(100vw - 32px));
             height: min(300px, 38vh);
             min-width: 240px;
@@ -111,7 +113,7 @@ struct StreetViewWebView: NSViewRepresentable {
             contain: layout paint;
           }
           #mapPanel.is-collapsed {
-            width: auto !important;
+            width: 64px !important;
             height: 36px !important;
             min-width: 0;
             min-height: 0;
@@ -131,8 +133,9 @@ struct StreetViewWebView: NSViewRepresentable {
           #mapPanel.is-collapsed #mapResizeHandle {
             display: none;
           }
-          #mapPanel.is-map-paused #mapBody {
-            visibility: hidden;
+          #mapPanel.is-map-paused #mapBody,
+          #mapPanel.is-map-paused #mapCenterPin {
+            display: none;
           }
           #map {
             width: 100%;
@@ -204,6 +207,7 @@ struct StreetViewWebView: NSViewRepresentable {
           #empty {
             position: absolute;
             inset: 0;
+            z-index: 1;
             display: grid;
             place-items: center;
             color: #3f4745;
@@ -216,6 +220,7 @@ struct StreetViewWebView: NSViewRepresentable {
             position: absolute;
             left: 50%;
             top: 82px;
+            z-index: 2147483647;
             transform: translateX(-50%);
             max-width: min(680px, calc(100vw - 32px));
             padding: 12px 14px;
@@ -265,7 +270,7 @@ struct StreetViewWebView: NSViewRepresentable {
             let map = null;
             let activeGoogle = null;
             let currentCenter = null;
-            let isMapExpanded = true;
+            let isMapExpanded = false;
             let mapResizeFrame = 0;
             let mapPauseTimer = 0;
             let resizeDrag = null;
@@ -320,6 +325,12 @@ struct StreetViewWebView: NSViewRepresentable {
               mapToggleElement.textContent = isMapExpanded ? 'Hide map' : 'Map';
               mapToggleElement.setAttribute('aria-expanded', String(isMapExpanded));
               mapBodyElement.setAttribute('aria-hidden', String(!isMapExpanded));
+              if (!isMapExpanded) {
+                window.clearTimeout(mapPauseTimer);
+                mapPauseTimer = 0;
+                mapPanelElement.classList.remove('is-map-paused');
+                return;
+              }
               if (isMapExpanded) {
                 requestAnimationFrame(() => {
                   syncMapFromStreetView();
@@ -329,15 +340,19 @@ struct StreetViewWebView: NSViewRepresentable {
             }
 
             function pauseMapDuringStreetViewMove() {
-              if (!isMapExpanded) {
+              if (!isMapExpanded || !map) {
                 return;
               }
-              mapPanelElement.classList.add('is-map-paused');
+              if (!mapPanelElement.classList.contains('is-map-paused')) {
+                mapPanelElement.classList.add('is-map-paused');
+              }
               window.clearTimeout(mapPauseTimer);
               mapPauseTimer = window.setTimeout(() => {
+                mapPauseTimer = 0;
                 mapPanelElement.classList.remove('is-map-paused');
                 syncMapFromStreetView();
-              }, 700);
+                requestMapResize();
+              }, 450);
             }
 
             function syncMap(center) {
