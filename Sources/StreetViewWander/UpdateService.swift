@@ -90,29 +90,65 @@ enum UpdateService {
     }
 
     static func installDownloadedAppArchive(_ zipURL: URL) throws {
-        let targetApp = Bundle.main.bundleURL
+        let targetApp = installTargetAppURL()
         guard targetApp.pathExtension == "app" else {
             throw UpdateServiceError.notAnAppBundle
         }
 
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("streetview-wander-update-\(UUID().uuidString).zsh")
+        let currentPID = ProcessInfo.processInfo.processIdentifier
 
         let script = """
         #!/bin/zsh
         set -euo pipefail
+
+        APP_PID=\(currentPID)
         ZIP=\(shellQuote(zipURL.path))
         TARGET=\(shellQuote(targetApp.path))
+        SCRIPT=\(shellQuote(scriptURL.path))
+        LOG_DIR="$HOME/Library/Logs/StreetViewWander"
+        LOG="$LOG_DIR/update.log"
         WORK="$(/usr/bin/mktemp -d)"
+        TMP_TARGET="$TARGET.new.$$"
+        OLD_TARGET="$TARGET.old.$$"
+
+        /bin/mkdir -p "$LOG_DIR"
+        exec >> "$LOG" 2>&1
+
+        cleanup() {
+            /bin/rm -rf "$WORK" "$TMP_TARGET"
+            /bin/rm -f "$SCRIPT"
+        }
+        trap cleanup EXIT
+
         /usr/bin/ditto -x -k "$ZIP" "$WORK"
         NEW_APP="$(/usr/bin/find "$WORK" -maxdepth 3 -type d -name 'StreetViewWander.app' | /usr/bin/head -n 1)"
         if [[ -z "$NEW_APP" ]]; then
             /bin/echo "StreetViewWander.app was not found in archive." >&2
             exit 2
         fi
-        /bin/sleep 1
-        /bin/rm -rf "$TARGET"
-        /usr/bin/ditto "$NEW_APP" "$TARGET"
+
+        /bin/rm -rf "$TMP_TARGET" "$OLD_TARGET"
+        /usr/bin/ditto "$NEW_APP" "$TMP_TARGET"
+        /usr/bin/xattr -cr "$TMP_TARGET" 2>/dev/null || true
+
+        while /bin/kill -0 "$APP_PID" 2>/dev/null; do
+            /bin/sleep 0.2
+        done
+
+        if [[ -e "$TARGET" ]]; then
+            /bin/mv "$TARGET" "$OLD_TARGET"
+        fi
+
+        if ! /bin/mv "$TMP_TARGET" "$TARGET"; then
+            if [[ -e "$OLD_TARGET" ]]; then
+                /bin/mv "$OLD_TARGET" "$TARGET"
+            fi
+            exit 3
+        fi
+
+        /bin/rm -rf "$OLD_TARGET"
         /usr/bin/open "$TARGET"
         """
 
@@ -121,8 +157,9 @@ enum UpdateService {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [scriptURL.path]
+        process.arguments = ["-c", "/usr/bin/nohup /bin/zsh \(shellQuote(scriptURL.path)) >/dev/null 2>&1 &"]
         try process.run()
+        process.waitUntilExit()
     }
 
     static func defaultRepositoryText() -> String {
@@ -206,6 +243,14 @@ enum UpdateService {
         (asset["name"] as? String ?? "").lowercased()
     }
 
+    private static func installTargetAppURL() -> URL {
+        let bundleURL = Bundle.main.bundleURL
+        if bundleURL.path.contains("/AppTranslocation/") {
+            return URL(fileURLWithPath: "/Applications/StreetViewWander.app")
+        }
+        return bundleURL
+    }
+
     private static func download(url: URL, suggestedName: String) async throws -> URL {
         var request = URLRequest(url: url)
         request.setValue("StreetViewWander", forHTTPHeaderField: "User-Agent")
@@ -255,14 +300,7 @@ final class UpdateModel: ObservableObject {
     private var autoCheckTask: Task<Void, Never>?
 
     var repositoryText: String {
-        get {
-            let stored = UserDefaults.standard.string(forKey: "githubRepository") ?? ""
-            if !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return stored
-            }
-            return UpdateService.defaultRepositoryText()
-        }
-        set { UserDefaults.standard.set(newValue, forKey: "githubRepository") }
+        UpdateService.defaultRepositoryText()
     }
 
     var updateLabel: String? {
@@ -332,11 +370,7 @@ final class UpdateModel: ObservableObject {
         }
     }
 
-    func updateNow(repositoryText newRepositoryText: String? = nil) {
-        if let newRepositoryText {
-            repositoryText = newRepositoryText
-        }
-
+    func updateNow() {
         if downloadedFileIsInstallable {
             installDownloadedUpdate()
             return
@@ -355,6 +389,7 @@ final class UpdateModel: ObservableObject {
             guard let downloadedFile else {
                 throw UpdateServiceError.noDownloadedFile
             }
+            statusText = "Installing and relaunching..."
             try UpdateService.installDownloadedAppArchive(downloadedFile)
             NSApp.terminate(nil)
         } catch {
@@ -423,7 +458,6 @@ final class UpdateModel: ObservableObject {
 struct UpdateSheetView: View {
     @EnvironmentObject private var updates: UpdateModel
     @Environment(\.dismiss) private var dismiss
-    @State private var repositoryText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -446,9 +480,9 @@ struct UpdateSheetView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    versionColumn("Installed", UpdateService.installedVersion())
+                    versionColumn("Current", UpdateService.installedVersion())
                     Divider()
-                    versionColumn("Latest", updates.availability?.release.version ?? "Not checked")
+                    versionColumn("Available", availableVersionText)
                 }
                 Text(updates.statusText)
                     .font(.system(size: 12))
@@ -458,40 +492,30 @@ struct UpdateSheetView: View {
             .padding(14)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Repository")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                TextField("owner/repository or GitHub URL", text: $repositoryText)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        saveRepository()
-                        updates.checkLatestRelease(silent: false)
-                    }
-            }
-
             HStack(spacing: 10) {
-                if let downloadedFile = updates.downloadedFile {
-                    Button("Show File") {
-                        NSWorkspace.shared.activateFileViewerSelecting([downloadedFile])
-                    }
-                }
-                Spacer()
                 if updates.isChecking || updates.isDownloading {
                     ProgressView()
                         .scaleEffect(0.72)
                 }
-                Button(primaryButtonTitle) {
-                    runPrimaryAction()
+                Button("Check for Updates") {
+                    updates.checkLatestRelease(silent: false)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(primaryButtonDisabled)
+                .disabled(updates.isChecking || updates.isDownloading)
+
+                Spacer()
+
+                if updates.availability?.isAvailable == true || updates.downloadedFileIsInstallable {
+                    Button("Install and Relaunch") {
+                        updates.updateNow()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(updates.isChecking || updates.isDownloading)
+                }
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 440)
         .onAppear {
-            repositoryText = updates.repositoryText
             updates.checkIfConfigured(silent: true)
         }
     }
@@ -509,31 +533,17 @@ struct UpdateSheetView: View {
         return "Not checked"
     }
 
+    private var availableVersionText: String {
+        guard let availability = updates.availability else {
+            return "Not checked"
+        }
+        return availability.isAvailable ? availability.release.version : "No update"
+    }
+
     private var statusColor: Color {
         updates.availability?.isAvailable == true || updates.downloadedFileIsInstallable
             ? Color.primary
             : Color.secondary
-    }
-
-    private var primaryButtonTitle: String {
-        if updates.downloadedFileIsInstallable {
-            return "Install and Relaunch"
-        }
-        if updates.isChecking {
-            return "Checking..."
-        }
-        if updates.isDownloading {
-            return "Updating..."
-        }
-        if updates.availability?.isAvailable == true {
-            return "Update Now"
-        }
-        return "Check for Updates"
-    }
-
-    private var primaryButtonDisabled: Bool {
-        updates.isChecking || updates.isDownloading
-            || repositoryText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func versionColumn(_ title: String, _ value: String) -> some View {
@@ -548,20 +558,5 @@ struct UpdateSheetView: View {
                 .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func runPrimaryAction() {
-        saveRepository()
-        if updates.downloadedFileIsInstallable {
-            updates.installDownloadedUpdate()
-        } else if updates.availability?.isAvailable == true {
-            updates.updateNow()
-        } else {
-            updates.checkLatestRelease(silent: false)
-        }
-    }
-
-    private func saveRepository() {
-        updates.repositoryText = repositoryText
     }
 }
