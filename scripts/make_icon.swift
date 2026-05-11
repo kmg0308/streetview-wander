@@ -35,35 +35,73 @@ func drawIcon(size: Int) throws -> Data {
     image.lockFocus()
 
     let rect = NSRect(origin: .zero, size: imageSize)
-    NSColor(red: 0.07, green: 0.22, blue: 0.19, alpha: 1).setFill()
+    NSColor.black.setFill()
     NSBezierPath(roundedRect: rect, xRadius: CGFloat(size) * 0.22, yRadius: CGFloat(size) * 0.22).fill()
 
-    let horizon = NSBezierPath()
-    horizon.move(to: NSPoint(x: CGFloat(size) * 0.14, y: CGFloat(size) * 0.60))
-    horizon.line(to: NSPoint(x: CGFloat(size) * 0.86, y: CGFloat(size) * 0.60))
-    horizon.lineWidth = max(2, CGFloat(size) * 0.035)
-    NSColor(red: 0.86, green: 0.91, blue: 0.87, alpha: 1).setStroke()
-    horizon.stroke()
-
-    let road = NSBezierPath()
-    road.move(to: NSPoint(x: CGFloat(size) * 0.46, y: CGFloat(size) * 0.16))
-    road.curve(
-        to: NSPoint(x: CGFloat(size) * 0.58, y: CGFloat(size) * 0.82),
-        controlPoint1: NSPoint(x: CGFloat(size) * 0.34, y: CGFloat(size) * 0.36),
-        controlPoint2: NSPoint(x: CGFloat(size) * 0.72, y: CGFloat(size) * 0.55)
+    let globeRect = NSRect(
+        x: CGFloat(size) * 0.18,
+        y: CGFloat(size) * 0.18,
+        width: CGFloat(size) * 0.64,
+        height: CGFloat(size) * 0.64
     )
-    road.lineWidth = max(5, CGFloat(size) * 0.09)
-    NSColor(red: 0.96, green: 0.70, blue: 0.31, alpha: 1).setStroke()
-    road.stroke()
+    let globe = NSBezierPath(ovalIn: globeRect)
+    NSColor(red: 0.10, green: 0.42, blue: 0.88, alpha: 1).setFill()
+    globe.fill()
 
-    let pin = NSBezierPath(ovalIn: NSRect(
-        x: CGFloat(size) * 0.60,
-        y: CGFloat(size) * 0.62,
-        width: CGFloat(size) * 0.16,
-        height: CGFloat(size) * 0.16
-    ))
-    NSColor.white.setFill()
-    pin.fill()
+    NSColor(red: 0.23, green: 0.77, blue: 0.48, alpha: 1).setFill()
+
+    let leftLand = NSBezierPath()
+    leftLand.move(to: NSPoint(x: CGFloat(size) * 0.32, y: CGFloat(size) * 0.62))
+    leftLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.43, y: CGFloat(size) * 0.42),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.23, y: CGFloat(size) * 0.56),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.30, y: CGFloat(size) * 0.45)
+    )
+    leftLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.47, y: CGFloat(size) * 0.68),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.55, y: CGFloat(size) * 0.47),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.55, y: CGFloat(size) * 0.63)
+    )
+    leftLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.32, y: CGFloat(size) * 0.62),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.42, y: CGFloat(size) * 0.72),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.36, y: CGFloat(size) * 0.70)
+    )
+    leftLand.fill()
+
+    let rightLand = NSBezierPath()
+    rightLand.move(to: NSPoint(x: CGFloat(size) * 0.61, y: CGFloat(size) * 0.70))
+    rightLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.72, y: CGFloat(size) * 0.52),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.72, y: CGFloat(size) * 0.69),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.78, y: CGFloat(size) * 0.60)
+    )
+    rightLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.57, y: CGFloat(size) * 0.33),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.66, y: CGFloat(size) * 0.44),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.66, y: CGFloat(size) * 0.35)
+    )
+    rightLand.curve(
+        to: NSPoint(x: CGFloat(size) * 0.61, y: CGFloat(size) * 0.70),
+        controlPoint1: NSPoint(x: CGFloat(size) * 0.49, y: CGFloat(size) * 0.40),
+        controlPoint2: NSPoint(x: CGFloat(size) * 0.51, y: CGFloat(size) * 0.63)
+    )
+    rightLand.fill()
+
+    globe.addClip()
+    NSColor.white.withAlphaComponent(0.22).setStroke()
+    for ratio in [0.36, 0.50, 0.64] {
+        let y = CGFloat(size) * ratio
+        let line = NSBezierPath()
+        line.move(to: NSPoint(x: globeRect.minX + CGFloat(size) * 0.05, y: y))
+        line.line(to: NSPoint(x: globeRect.maxX - CGFloat(size) * 0.05, y: y))
+        line.lineWidth = max(1, CGFloat(size) * 0.012)
+        line.stroke()
+    }
+
+    NSColor.white.withAlphaComponent(0.30).setStroke()
+    globe.lineWidth = max(2, CGFloat(size) * 0.025)
+    globe.stroke()
 
     image.unlockFocus()
 
@@ -99,4 +137,3 @@ if process.terminationStatus != 0 {
         NSLocalizedDescriptionKey: "iconutil failed."
     ])
 }
-
