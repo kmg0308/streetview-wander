@@ -1,76 +1,113 @@
 # StreetView Wander
 
-StreetView Wander is a localhost-only random Google Street View explorer.
+[![Download for macOS](https://img.shields.io/badge/Download%20for%20macOS-PKG-0A84FF?style=for-the-badge&logo=apple)](https://github.com/kmg0308/streetview-wander/releases/latest/download/StreetViewWander.pkg)
 
-It picks a random coordinate from broad Street View coverage areas, checks that
-Google has outdoor Street View imagery for the coordinate, then opens the
-nearest valid panorama with a floating Google Map.
+[Latest Release](https://github.com/kmg0308/streetview-wander/releases/latest) · [Download ZIP](https://github.com/kmg0308/streetview-wander/releases/latest/download/StreetViewWander.zip)
+
+StreetView Wander is a macOS app for jumping to random Google Street View panoramas.
+
+The app is local-first. API keys are entered by the user on their Mac and are not bundled into releases.
 
 ## Features
 
-- Random Street View start point
-- Searchable continent and country filters for the next random place
-- Free movement inside full-screen Google Street View, loaded by panorama ID
-- Floating Google Map for the current start point, with wheel zoom enabled
-- Minimal controls so Street View stays as the main full-screen view
-- Local visit history, viewable in the browser
-- Server-side metadata lookup so the metadata key is not exposed to browser code
+- Native macOS app built with SwiftUI.
+- Full-window Google Street View through a WKWebView.
+- Random panorama search using Google Street View metadata.
+- Worldwide, continent, and country scope filters.
+- Floating mini map for the selected panorama.
+- Local visit history.
+- `.env` import for user-owned Google API keys.
+- GitHub Release update check and one-click app update.
+- PKG installer and ZIP update archive from GitHub Releases.
 
-The random picker uses broad weighted regions across North America, Europe,
-Asia, Oceania, South America, Africa, and island regions. Google does not expose
-a downloadable list of every Street View panorama, so the app still verifies each
-random coordinate with the Street View metadata endpoint before opening it.
-When a continent or country filter is selected, the app samples from local
-Natural Earth country boundary data before running the Street View metadata
-check.
+## Install
 
-## Google Cloud setup
+1. Download the latest PKG:
+
+```text
+https://github.com/kmg0308/streetview-wander/releases/latest/download/StreetViewWander.pkg
+```
+
+2. Open the installer.
+3. Launch `StreetView Wander` from `/Applications`.
+4. Open Settings and add your Google API keys.
+
+If macOS blocks the first launch because the build is ad-hoc signed, right click the app in Finder and choose `Open`.
+
+## Google Cloud Setup
 
 Create two API keys in Google Cloud:
 
 1. Browser key
    - Enable API: Maps JavaScript API
-   - Application restriction: Websites
-   - Allowed referrers:
-     - `http://localhost:5173/*`
-     - `http://127.0.0.1:5173/*`
    - API restriction: Maps JavaScript API
+   - Store it as `VITE_GOOGLE_MAPS_API_KEY`
 
 2. Metadata key
    - Enable API: Street View Static API
    - API restriction: Street View Static API
-   - Store it only in `.env`
+   - Store it as `GOOGLE_STREET_VIEW_METADATA_API_KEY`
 
-The server uses the metadata endpoint to find a valid panorama. Google
-documents Street View metadata requests as no-charge requests that do not
-consume quota. The visible Street View and floating map are loaded through Maps
-JavaScript API so wheel zoom works on the map and Google's default view controls
-can be hidden.
-
-## Local setup
-
-```bash
-npm install
-cp .env.example .env
-npm run dev
-```
-
-Then fill `.env`:
+The app can import a `.env` file with this shape:
 
 ```bash
 VITE_GOOGLE_MAPS_API_KEY=your_browser_key
 GOOGLE_STREET_VIEW_METADATA_API_KEY=your_metadata_key
 ```
 
-Restart the dev server after changing `.env`.
+For the browser key, Google Maps JavaScript runs inside a macOS `WKWebView`. If you use website restrictions, allow local app origins such as `http://127.0.0.1/*`. If that is too strict for your Google Cloud setup, use API restrictions and keep the key private to your own Mac.
 
-Random visits are saved locally to `.streetview-history/history.json`. That
-folder is ignored by git.
+## Updates
 
-## Commands
+StreetView Wander checks the latest GitHub Release when the app opens and then every 6 hours while it is running. Open the Updates sheet or press the update banner when a newer release is available.
+
+- The app downloads the Release asset named `StreetViewWander.zip`.
+- It replaces the installed `StreetViewWander.app`.
+- It relaunches the app after installing.
+- The PKG is for first install. The ZIP is for in-app updates.
+
+For updates to work for normal users, the Release assets must be publicly downloadable. If this repository stays private, use a public release-only repository or add a user-provided GitHub token flow before distributing to others.
+
+## Automatic Release From Main
+
+The workflow at `.github/workflows/release.yml` builds and publishes release assets whenever `main` receives a push.
+
+```text
+push to main
+-> GitHub Actions builds StreetViewWander.app
+-> creates StreetViewWander.zip and StreetViewWander.pkg
+-> publishes a GitHub Release
+-> installed apps detect the new Release
+```
+
+The workflow uses GitHub's `GITHUB_TOKEN`. It does not require a paid Apple Developer account. Builds are ad-hoc signed by default, so Gatekeeper may show a first-launch warning.
+
+## Build
 
 ```bash
-npm run dev
-npm run build
-npm run lint
+swift build
+swift run StreetViewWanderSelfTest
+./scripts/package.sh
 ```
+
+Packaged files are written to `dist/`:
+
+- `StreetViewWander.app`
+- `StreetViewWander.zip`
+- `StreetViewWander.pkg`
+- versioned ZIP and PKG copies
+
+## Local Data
+
+Country boundary data lives in `data/countries.json` and is bundled into the app at package time.
+
+Visit history is saved locally:
+
+```text
+~/Library/Application Support/StreetView Wander/history.json
+```
+
+## Requirements
+
+- macOS 13 or later.
+- Swift 6 toolchain for building from source.

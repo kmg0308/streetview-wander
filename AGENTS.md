@@ -27,12 +27,14 @@ Behavioral guidelines for coding agents working on this project. These rules are
 
 - Convert each non-trivial task into clear success checks before editing.
 - For bug fixes, reproduce or identify the failing path before changing behavior.
-- For refactors, keep behavior stable and run `npm run lint` and `npm run build`.
+- For refactors, keep behavior stable and run `swift build` and `swift run StreetViewWanderSelfTest`.
 - Keep looping until the checks pass or a real blocker is identified.
 
 ## Project-Specific Rules
 
-- This is a localhost-only Vite React app. Keep browser code under `src/` and Vite server middleware under `server/`.
-- Do not expose `GOOGLE_STREET_VIEW_METADATA_API_KEY` to browser code. Browser code may only read `VITE_GOOGLE_MAPS_API_KEY`.
+- This is a SwiftUI macOS app built with Swift Package Manager. Keep app UI code under `Sources/StreetViewWander` and shared logic under `Sources/StreetViewWanderCore`.
+- Do not bundle user API keys into releases. Users must enter keys in Settings or import a local `.env` file.
+- Do not expose `GOOGLE_STREET_VIEW_METADATA_API_KEY` to the Street View web view. Only `VITE_GOOGLE_MAPS_API_KEY` may be passed to WebKit.
 - Treat `data/countries.json` as generated boundary data. Do not manually edit it unless the task is explicitly about country data.
-- Random place selection must keep returning a valid panorama response shape used by the React app and visit history.
+- Random place selection must keep returning the `Panorama` shape used by the Swift app and local visit history.
+- For release changes, run `swift build`, `swift run StreetViewWanderSelfTest`, and `./scripts/package.sh`.

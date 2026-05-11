@@ -8,6 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.build
+.swiftpm
+DerivedData
 dist
 dist-ssr
 .env
