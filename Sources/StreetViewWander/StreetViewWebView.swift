@@ -133,26 +133,43 @@ struct StreetViewWebView: NSViewRepresentable {
           #mapPanel.is-collapsed #mapResizeHandle {
             display: none;
           }
-          #mapPanel.is-map-paused #mapBody,
-          #mapPanel.is-map-paused #mapCenterPin {
+          #mapPanel.is-map-paused #mapBody {
             display: none;
           }
           #map {
             width: 100%;
             height: 100%;
           }
-          #mapCenterPin {
+          .currentLocationMarker {
+            position: absolute;
+            width: 30px;
+            height: 42px;
+            transform: translate(-50%, -100%);
+            pointer-events: none;
+          }
+          .currentLocationMarker::before {
+            content: "";
             position: absolute;
             left: 50%;
-            top: 50%;
-            width: 14px;
-            height: 14px;
-            border: 3px solid #fff;
-            border-radius: 50%;
-            background: #176c5f;
+            top: 4px;
+            width: 24px;
+            height: 24px;
+            border: 2px solid #fff;
+            border-radius: 50% 50% 50% 0;
+            background: #d93025;
             box-shadow: 0 2px 10px rgba(0,0,0,.35);
-            transform: translate(-50%, -50%);
-            pointer-events: none;
+            transform: translateX(-50%) rotate(-45deg);
+          }
+          .currentLocationMarker::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 12px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #fff;
+            transform: translateX(-50%);
           }
           #mapToggle {
             position: absolute;
@@ -242,7 +259,6 @@ struct StreetViewWebView: NSViewRepresentable {
               <button id="mapToggle" type="button" aria-controls="mapBody" aria-expanded="true">Hide map</button>
               <div id="mapBody">
                 <div id="map"></div>
-                <div id="mapCenterPin" aria-hidden="true"></div>
               </div>
             </aside>
             <div id="empty">Street View will appear here.</div>
@@ -268,6 +284,7 @@ struct StreetViewWebView: NSViewRepresentable {
             let loadedKey = null;
             let panorama = null;
             let map = null;
+            let locationMarker = null;
             let activeGoogle = null;
             let currentCenter = null;
             let isMapExpanded = false;
@@ -315,6 +332,7 @@ struct StreetViewWebView: NSViewRepresentable {
                 }
                 if (currentCenter) {
                   map.setCenter(currentCenter);
+                  locationMarker?.draw();
                 }
               });
             }
@@ -355,6 +373,54 @@ struct StreetViewWebView: NSViewRepresentable {
               }, 450);
             }
 
+            function createLocationMarker() {
+              const markerElement = document.createElement('div');
+              markerElement.className = 'currentLocationMarker';
+              markerElement.setAttribute('aria-label', 'Current location');
+
+              const overlay = new activeGoogle.maps.OverlayView();
+              overlay.onAdd = () => {
+                overlay.getPanes()?.overlayMouseTarget?.appendChild(markerElement);
+              };
+              overlay.draw = () => {
+                if (!currentCenter) {
+                  markerElement.style.display = 'none';
+                  return;
+                }
+                const projection = overlay.getProjection();
+                const point = projection?.fromLatLngToDivPixel(
+                  new activeGoogle.maps.LatLng(currentCenter.lat, currentCenter.lng)
+                );
+                if (!point) {
+                  markerElement.style.display = 'none';
+                  return;
+                }
+                markerElement.style.display = 'block';
+                markerElement.style.left = `${point.x}px`;
+                markerElement.style.top = `${point.y}px`;
+              };
+              overlay.onRemove = () => {
+                markerElement.remove();
+              };
+              overlay.setMap(map);
+
+              return {
+                draw: () => overlay.draw(),
+                remove: () => overlay.setMap(null)
+              };
+            }
+
+            function syncLocationMarker() {
+              if (!activeGoogle || !map || !currentCenter) {
+                return;
+              }
+              if (!locationMarker) {
+                locationMarker = createLocationMarker();
+              } else {
+                locationMarker.draw();
+              }
+            }
+
             function syncMap(center) {
               if (center) {
                 currentCenter = center;
@@ -378,6 +444,7 @@ struct StreetViewWebView: NSViewRepresentable {
                 map.setCenter(center);
                 map.setZoom(MAP_ZOOM);
               }
+              syncLocationMarker();
             }
 
             function syncMapFromStreetView() {
