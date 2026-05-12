@@ -110,17 +110,22 @@ enum UpdateService {
         LOG_DIR="$HOME/Library/Logs/StreetViewWander"
         LOG="$LOG_DIR/update.log"
         WORK="$(/usr/bin/mktemp -d)"
+        TARGET_PARENT="$(/usr/bin/dirname "$TARGET")"
+        TARGET_NAME="$(/usr/bin/basename "$TARGET")"
         TMP_TARGET="$TARGET.new.$$"
         OLD_TARGET="$TARGET.old.$$"
 
         /bin/mkdir -p "$LOG_DIR"
         exec >> "$LOG" 2>&1
+        /bin/echo "[$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')] Starting update for $TARGET from $ZIP"
 
         cleanup() {
             /bin/rm -rf "$WORK" "$TMP_TARGET"
             /bin/rm -f "$SCRIPT"
         }
         trap cleanup EXIT
+
+        /usr/bin/find "$TARGET_PARENT" -maxdepth 1 \\( -name "$TARGET_NAME.new.*" -o -name "$TARGET_NAME.old.*" \\) -exec /bin/rm -rf {} +
 
         /usr/bin/ditto -x -k "$ZIP" "$WORK"
         NEW_APP="$(/usr/bin/find "$WORK" -maxdepth 3 -type d -name 'StreetViewWander.app' | /usr/bin/head -n 1)"
@@ -133,9 +138,32 @@ enum UpdateService {
         /usr/bin/ditto "$NEW_APP" "$TMP_TARGET"
         /usr/bin/xattr -cr "$TMP_TARGET" 2>/dev/null || true
 
-        while /bin/kill -0 "$APP_PID" 2>/dev/null; do
+        if /bin/kill -0 "$APP_PID" 2>/dev/null; then
+            /bin/kill -TERM "$APP_PID" 2>/dev/null || true
+        fi
+
+        for _ in {1..50}; do
+            if ! /bin/kill -0 "$APP_PID" 2>/dev/null; then
+                break
+            fi
             /bin/sleep 0.2
         done
+
+        if /bin/kill -0 "$APP_PID" 2>/dev/null; then
+            /bin/echo "App did not terminate after TERM; sending KILL to $APP_PID."
+            /bin/kill -KILL "$APP_PID" 2>/dev/null || true
+            for _ in {1..20}; do
+                if ! /bin/kill -0 "$APP_PID" 2>/dev/null; then
+                    break
+                fi
+                /bin/sleep 0.2
+            done
+        fi
+
+        if /bin/kill -0 "$APP_PID" 2>/dev/null; then
+            /bin/echo "App process $APP_PID is still running; aborting install." >&2
+            exit 4
+        fi
 
         if [[ -e "$TARGET" ]]; then
             /bin/mv "$TARGET" "$OLD_TARGET"
@@ -149,7 +177,9 @@ enum UpdateService {
         fi
 
         /bin/rm -rf "$OLD_TARGET"
-        /usr/bin/open "$TARGET"
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$TARGET" 2>/dev/null || true
+        /usr/bin/open -n "$TARGET"
+        /bin/echo "[$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')] Update installed and relaunched."
         """
 
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
