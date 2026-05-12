@@ -91,6 +91,7 @@ PKG_PATH="$DIST_DIR/$APP_NAME-$VERSION.pkg"
 FIXED_ZIP_PATH="$DIST_DIR/$APP_NAME.zip"
 FIXED_PKG_PATH="$DIST_DIR/$APP_NAME.pkg"
 PKG_ROOT="$DIST_DIR/.pkg-root"
+PKG_COMPONENTS="$DIST_DIR/.pkg-components.plist"
 
 rm -f "$ZIP_PATH" "$PKG_PATH" "$FIXED_ZIP_PATH" "$FIXED_PKG_PATH"
 (
@@ -102,13 +103,35 @@ cp "$ZIP_PATH" "$FIXED_ZIP_PATH"
 rm -rf "$PKG_ROOT"
 mkdir -p "$PKG_ROOT/Applications"
 ditto --norsrc --noextattr "$APP_DIR" "$PKG_ROOT/Applications/$APP_NAME.app"
+cat > "$PKG_COMPONENTS" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+  <dict>
+    <key>BundleHasStrictIdentifier</key>
+    <true/>
+    <key>BundleIsRelocatable</key>
+    <false/>
+    <key>BundleIsVersionChecked</key>
+    <false/>
+    <key>BundleOverwriteAction</key>
+    <string>upgrade</string>
+    <key>RootRelativeBundlePath</key>
+    <string>Applications/$APP_NAME.app</string>
+  </dict>
+</array>
+</plist>
+PLIST
 COPYFILE_DISABLE=1 pkgbuild \
   --root "$PKG_ROOT" \
+  --component-plist "$PKG_COMPONENTS" \
   --install-location "/" \
   --identifier "com.kangmingyu.streetviewwander.pkg" \
   --version "$VERSION" \
   "$PKG_PATH" >/dev/null
 rm -rf "$PKG_ROOT"
+rm -f "$PKG_COMPONENTS"
 cp "$PKG_PATH" "$FIXED_PKG_PATH"
 
 cat > "$DIST_DIR/manifest.json" <<JSON
