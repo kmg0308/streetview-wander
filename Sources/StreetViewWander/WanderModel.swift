@@ -11,6 +11,8 @@ final class WanderModel: ObservableObject {
         static let metadataAPIKey = "metadataAPIKey"
         static let selectedContinentId = "selectedContinentId"
         static let selectedCountryId = "selectedCountryId"
+        static let metadataRequestLimit = "metadataRequestLimit"
+        static let metadataRequestsUsed = "metadataRequestsUsed"
     }
 
     @Published var browserAPIKey: String {
@@ -37,6 +39,14 @@ final class WanderModel: ObservableObject {
             }
         }
     }
+    @Published var metadataRequestLimit = 0 {
+        didSet {
+            if metadataRequestLimit < 0 {
+                metadataRequestLimit = 0
+            }
+            defaults.set(metadataRequestLimit, forKey: DefaultsKey.metadataRequestLimit)
+        }
+    }
 
     @Published private(set) var panorama: Panorama?
     @Published private(set) var history: [HistoryEntry] = []
@@ -44,6 +54,11 @@ final class WanderModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var statusText = "Add API keys in Settings, then pick a random place."
     @Published private(set) var errorText: String?
+    @Published private(set) var metadataRequestsUsed = 0 {
+        didSet {
+            defaults.set(metadataRequestsUsed, forKey: DefaultsKey.metadataRequestsUsed)
+        }
+    }
     @Published var activePanel: Panel = .none
     @Published var isSettingsPresented = false
 
@@ -78,6 +93,8 @@ final class WanderModel: ObservableObject {
         self.metadataAPIKey = keychainStore.string(for: DefaultsKey.metadataAPIKey) ?? legacyMetadataAPIKey ?? ""
         self.selectedContinentId = defaults.string(forKey: DefaultsKey.selectedContinentId) ?? ""
         self.selectedCountryId = defaults.string(forKey: DefaultsKey.selectedCountryId) ?? ""
+        self.metadataRequestLimit = max(0, defaults.integer(forKey: DefaultsKey.metadataRequestLimit))
+        self.metadataRequestsUsed = max(0, defaults.integer(forKey: DefaultsKey.metadataRequestsUsed))
 
         persistSecret(browserAPIKey, key: DefaultsKey.browserAPIKey)
         persistSecret(metadataAPIKey, key: DefaultsKey.metadataAPIKey)
@@ -90,6 +107,13 @@ final class WanderModel: ObservableObject {
 
     var hasMetadataAPIKey: Bool {
         !metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var metadataRequestsRemaining: Int? {
+        guard metadataRequestLimit > 0 else {
+            return nil
+        }
+        return max(metadataRequestLimit - metadataRequestsUsed, 0)
     }
 
     var selectedScopeLabel: String {
@@ -162,7 +186,10 @@ final class WanderModel: ObservableObject {
                 let next = try await panoramaFinder.findRandomPanorama(
                     metadataAPIKey: metadataAPIKey,
                     selection: selection,
-                    recentContinents: recentContinents
+                    recentContinents: recentContinents,
+                    onMetadataRequest: { [weak self] in
+                        await self?.recordMetadataRequest()
+                    }
                 )
                 panorama = next
                 history = try historyStore.append(next)
@@ -175,6 +202,14 @@ final class WanderModel: ObservableObject {
 
             isLoading = false
         }
+    }
+
+    func resetMetadataRequestUsage() {
+        metadataRequestsUsed = 0
+    }
+
+    private func recordMetadataRequest() {
+        metadataRequestsUsed += 1
     }
 
     private func persistSecret(_ value: String, key: String) {

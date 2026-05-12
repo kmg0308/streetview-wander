@@ -46,7 +46,8 @@ public actor PanoramaFinder {
     public func findRandomPanorama(
         metadataAPIKey: String,
         selection: SearchSelection,
-        recentContinents: [String] = []
+        recentContinents: [String] = [],
+        onMetadataRequest: (@Sendable () async -> Void)? = nil
     ) async throws -> Panorama {
         let apiKey = metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else {
@@ -65,7 +66,11 @@ public actor PanoramaFinder {
                 globalPlan: globalPlan,
                 attempt: attempt
             )
-            let metadata = try await metadata(apiKey: apiKey, location: candidate.requestedLocation)
+            let metadata = try await metadata(
+                apiKey: apiKey,
+                location: candidate.requestedLocation,
+                onRequest: onMetadataRequest
+            )
             lastStatus = metadata.errorMessage ?? metadata.status
 
             if metadata.status == "OK",
@@ -98,7 +103,11 @@ public actor PanoramaFinder {
         throw PanoramaFinderError.noPanoramaFound(SearchSampler.maxAttempts, lastStatus)
     }
 
-    private func metadata(apiKey: String, location: PanoramaLocation) async throws -> PanoramaMetadata {
+    private func metadata(
+        apiKey: String,
+        location: PanoramaLocation,
+        onRequest: (@Sendable () async -> Void)?
+    ) async throws -> PanoramaMetadata {
         var components = URLComponents(string: "https://maps.googleapis.com/maps/api/streetview/metadata")
         components?.queryItems = [
             URLQueryItem(name: "key", value: apiKey),
@@ -111,6 +120,7 @@ public actor PanoramaFinder {
             throw PanoramaFinderError.googleResponseInvalid
         }
 
+        await onRequest?()
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse else {
             throw PanoramaFinderError.googleResponseInvalid

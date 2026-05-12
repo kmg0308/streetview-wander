@@ -175,11 +175,26 @@ struct ContentView: View {
                 .lineLimit(2)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(model.errorText == nil ? Color.white.opacity(0.86) : Color(red: 1, green: 0.82, blue: 0.76))
+                .layoutPriority(1)
+
+            Spacer(minLength: 8)
+
+            Text(metadataUsageStatus)
+                .lineLimit(1)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white.opacity(0.72))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var metadataUsageStatus: String {
+        if let remaining = model.metadataRequestsRemaining {
+            return "Metadata API \(formatCount(model.metadataRequestsUsed))/\(formatCount(model.metadataRequestLimit)) · \(formatCount(remaining)) left"
+        }
+        return "Metadata API used \(formatCount(model.metadataRequestsUsed)) · no limit"
     }
 
     private var sidePanel: some View {
@@ -382,6 +397,32 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Metadata API Request Count")
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack(spacing: 16) {
+                    requestMetric("Total", model.metadataRequestLimit > 0 ? formatCount(model.metadataRequestLimit) : "No limit")
+                    requestMetric("Used", formatCount(model.metadataRequestsUsed))
+                    requestMetric("Remaining", model.metadataRequestsRemaining.map(formatCount) ?? "No limit")
+                }
+
+                HStack(spacing: 10) {
+                    TextField("Total request limit", value: $model.metadataRequestLimit, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                    Text("0 means no limit")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset Used Count") {
+                        model.resetMetadataRequestUsage()
+                    }
+                }
+            }
+
             HStack {
                 Button("Import .env") {
                     model.importEnvFile()
@@ -395,6 +436,18 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+
+    private func requestMetric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -418,6 +471,10 @@ private func detail(_ label: String, _ value: String) -> some View {
 
 private func formatCoord(_ value: Double) -> String {
     String(format: "%.5f", value)
+}
+
+private func formatCount(_ value: Int) -> String {
+    NumberFormatter.localizedString(from: NSNumber(value: value), number: .decimal)
 }
 
 private func mapsURL(for panorama: Panorama) -> URL {
