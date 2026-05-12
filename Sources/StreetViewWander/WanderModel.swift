@@ -146,13 +146,15 @@ final class WanderModel: ObservableObject {
             continentId: selectedContinentId,
             countryId: selectedCountryId
         )
+        let recentContinents = recentContinentLabels()
         let metadataAPIKey = metadataAPIKey
 
         Task {
             do {
                 let next = try await panoramaFinder.findRandomPanorama(
                     metadataAPIKey: metadataAPIKey,
-                    selection: selection
+                    selection: selection,
+                    recentContinents: recentContinents
                 )
                 panorama = next
                 history = try historyStore.append(next)
@@ -165,6 +167,63 @@ final class WanderModel: ObservableObject {
 
             isLoading = false
         }
+    }
+
+    private func recentContinentLabels() -> [String] {
+        history.prefix(60).compactMap {
+            $0.continentLabel ?? legacyContinentLabel(for: $0.areaLabel)
+        }
+    }
+
+    private func legacyContinentLabel(for areaLabel: String) -> String? {
+        [
+            "Alaska and Yukon": "North America",
+            "Canada West": "North America",
+            "Canada East": "North America",
+            "United States": "North America",
+            "Mexico": "North America",
+            "Central America": "North America",
+            "Caribbean": "North America",
+            "Greenland and North Atlantic": "North America",
+            "Iceland": "Europe",
+            "British Isles": "Europe",
+            "Iberia": "Europe",
+            "Western Europe": "Europe",
+            "Central Europe": "Europe",
+            "Nordics": "Europe",
+            "Baltics and Poland": "Europe",
+            "Italy and Malta": "Europe",
+            "Balkans": "Europe",
+            "Eastern Europe": "Europe",
+            "Greece and Cyprus": "Europe",
+            "Turkey and Caucasus": "Asia",
+            "Western Russia": "Europe",
+            "Middle East": "Asia",
+            "Central Asia": "Asia",
+            "Northern Asia West": "Asia",
+            "Northern Asia East": "Asia",
+            "Mongolia and Northern China": "Asia",
+            "Eastern China": "Asia",
+            "South Asia": "Asia",
+            "Mainland Southeast Asia": "Asia",
+            "Maritime Southeast Asia": "Asia",
+            "Japan and Korea": "Asia",
+            "Taiwan Hong Kong and Macau": "Asia",
+            "Australia and New Zealand": "Oceania",
+            "Pacific Islands West": "Oceania",
+            "Pacific Islands East": "Oceania",
+            "Northern South America": "South America",
+            "Brazil": "South America",
+            "Andes": "South America",
+            "Southern Cone": "South America",
+            "North Africa": "Africa",
+            "West Africa": "Africa",
+            "East Africa": "Africa",
+            "Southern Africa": "Africa",
+            "Indian Ocean Islands": "Africa",
+            "Antarctic Peninsula": "Antarctica",
+            "Ross Island Antarctica": "Antarctica"
+        ][areaLabel]
     }
 
     func importEnvFile() {
