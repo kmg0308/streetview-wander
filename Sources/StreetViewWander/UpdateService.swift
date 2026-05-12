@@ -125,7 +125,7 @@ enum UpdateService {
         }
         trap cleanup EXIT
 
-        /usr/bin/find "$TARGET_PARENT" -maxdepth 1 \\( -name "$TARGET_NAME.new.*" -o -name "$TARGET_NAME.old.*" \\) -exec /bin/rm -rf {} +
+        /usr/bin/find "$TARGET_PARENT" -maxdepth 1 \\( -name "$TARGET_NAME.new.*" -o -name "$TARGET_NAME.old.*" -o -name ".$TARGET_NAME.old.*" \\) -exec /bin/rm -rf {} + 2>/dev/null || true
 
         /usr/bin/ditto -x -k "$ZIP" "$WORK"
         NEW_APP="$(/usr/bin/find "$WORK" -maxdepth 3 -type d -name 'StreetViewWander.app' | /usr/bin/head -n 1)"
@@ -176,7 +176,10 @@ enum UpdateService {
             exit 3
         fi
 
-        /bin/rm -rf "$OLD_TARGET"
+        if ! /bin/rm -rf "$OLD_TARGET" 2>/dev/null; then
+            HIDDEN_OLD="$TARGET_PARENT/.$TARGET_NAME.old.$$"
+            /bin/mv "$OLD_TARGET" "$HIDDEN_OLD" 2>/dev/null || true
+        fi
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$TARGET" 2>/dev/null || true
         /usr/bin/open -n "$TARGET"
         /bin/echo "[$(/bin/date -u '+%Y-%m-%dT%H:%M:%SZ')] Update installed and relaunched."
