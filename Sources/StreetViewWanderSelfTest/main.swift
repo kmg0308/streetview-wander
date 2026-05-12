@@ -78,14 +78,50 @@ guard correctedEuropeShare < 0.08 else {
     ])
 }
 
+let plannedCandidates = try SearchSampler.pickCandidates(
+    countries: countries,
+    selection: SearchSelection(),
+    attempts: 1...40
+)
+guard let focusedContinent = plannedCandidates.first?.continentLabel else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 8, userInfo: [
+        NSLocalizedDescriptionKey: "Planned worldwide sampling did not return a focused continent."
+    ])
+}
+
+let focusedAttemptCount = focusedContinent == "Antarctica" ? 8 : 36
+guard plannedCandidates.prefix(focusedAttemptCount).allSatisfy({ $0.continentLabel == focusedContinent }) else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 9, userInfo: [
+        NSLocalizedDescriptionKey: "Planned worldwide sampling did not keep early retries in one continent."
+    ])
+}
+guard plannedCandidates[focusedAttemptCount].continentLabel != focusedContinent else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 10, userInfo: [
+        NSLocalizedDescriptionKey: "Planned worldwide sampling did not rotate fallback continents."
+    ])
+}
+
 if let firstCountry = options.countries.first {
     let countryCandidate = try SearchSampler.pickCandidate(
         countries: countries,
         selection: SearchSelection(continentId: firstCountry.continent, countryId: firstCountry.id)
     )
     guard countryCandidate.countryLabel == firstCountry.label else {
-        throw NSError(domain: "StreetViewWanderSelfTest", code: 8, userInfo: [
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 11, userInfo: [
             NSLocalizedDescriptionKey: "Country-scoped sampling returned the wrong country."
+        ])
+    }
+
+    let oceanLocation = PanoramaLocation(lat: 0, lng: 0)
+    let resolvedCountryCandidate = SearchSampler.resolveCandidate(
+        countryCandidate,
+        for: oceanLocation,
+        countries: countries,
+        selection: SearchSelection(continentId: firstCountry.continent, countryId: firstCountry.id)
+    )
+    guard resolvedCountryCandidate == nil else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 12, userInfo: [
+            NSLocalizedDescriptionKey: "Country-scoped sampling accepted a panorama outside known country bounds."
         ])
     }
 }
@@ -98,7 +134,7 @@ let env = EnvFile.parse(
 )
 guard env["VITE_GOOGLE_MAPS_API_KEY"] == "browser",
       env["GOOGLE_STREET_VIEW_METADATA_API_KEY"] == "metadata" else {
-    throw NSError(domain: "StreetViewWanderSelfTest", code: 9, userInfo: [
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 13, userInfo: [
         NSLocalizedDescriptionKey: ".env parsing failed."
     ])
 }

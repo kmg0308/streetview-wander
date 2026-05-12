@@ -24,6 +24,7 @@ jobs:
         run: |
           VERSION="0.1.${GITHUB_RUN_NUMBER}"
           BUILD_COMMIT="${GITHUB_SHA:0:7}"
+          swift build
           VERSION="$VERSION" BUILD_NUMBER="$GITHUB_RUN_NUMBER" BUILD_COMMIT="$BUILD_COMMIT" DEFAULT_REPOSITORY="$GITHUB_REPOSITORY" ./scripts/package.sh
 
       - name: Publish GitHub Release

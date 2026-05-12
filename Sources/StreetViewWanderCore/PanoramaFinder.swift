@@ -173,6 +173,24 @@ public enum SearchSampler {
         )
     }
 
+    public static func pickCandidates(
+        countries: [CountryArea],
+        selection: SearchSelection,
+        recentContinents: [String] = [],
+        attempts: ClosedRange<Int>
+    ) throws -> [SearchCandidate] {
+        let scope = try SearchScope(countries: countries, selection: selection)
+        let globalPlan = try globalSearchPlan(scope: scope, recentContinents: recentContinents)
+        return try attempts.map {
+            try pickCandidate(
+                scope: scope,
+                recentContinents: recentContinents,
+                globalPlan: globalPlan,
+                attempt: $0
+            )
+        }
+    }
+
     static func globalSearchPlan(scope: SearchScope, recentContinents: [String]) throws -> GlobalSearchPlan? {
         guard case .global(_, let countries) = scope else {
             return nil
@@ -212,13 +230,16 @@ public enum SearchSampler {
         }
     }
 
-    static func resolveCandidate(
+    public static func resolveCandidate(
         _ candidate: SearchCandidate,
         for location: PanoramaLocation,
         countries: [CountryArea],
         selection: SearchSelection
     ) -> SearchCandidate? {
         guard let actualCountry = country(containing: location, countries: countries) else {
+            if selection.countryId != nil || selection.continentId != nil {
+                return nil
+            }
             return candidate
         }
 

@@ -38,7 +38,15 @@ struct StreetViewWebView: NSViewRepresentable {
         private var pendingTask: Task<Void, Never>?
 
         func render(panorama: Panorama?, browserAPIKey: String) {
-            let signature = "\(browserAPIKey)|\(panorama?.panoId ?? "none")|\(panorama?.heading ?? 0)"
+            let signature = [
+                browserAPIKey,
+                panorama?.panoId ?? "none",
+                "\(panorama?.location.lat ?? 0)",
+                "\(panorama?.location.lng ?? 0)",
+                "\(panorama?.heading ?? 0)",
+                "\(panorama?.pitch ?? 0)",
+                "\(panorama?.fov ?? 0)"
+            ].joined(separator: "|")
             guard signature != lastSignature else {
                 return
             }
@@ -82,7 +90,7 @@ struct StreetViewWebView: NSViewRepresentable {
             height: 100%;
             margin: 0;
             overflow: hidden;
-            background: #dfe6e1;
+            background: #111817;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           }
           #stage {
@@ -108,7 +116,7 @@ struct StreetViewWebView: NSViewRepresentable {
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 16px 36px rgba(0,0,0,.28);
-            background: #dfe6e1;
+            background: #111817;
             display: none;
             contain: layout paint;
           }
@@ -227,7 +235,7 @@ struct StreetViewWebView: NSViewRepresentable {
             z-index: 1;
             display: grid;
             place-items: center;
-            color: #3f4745;
+            color: rgba(242,247,244,.84);
             font-size: 18px;
             font-weight: 700;
             text-align: center;
@@ -480,11 +488,19 @@ struct StreetViewWebView: NSViewRepresentable {
               mapsPromise = new Promise((resolve, reject) => {
                 document.querySelectorAll('script[data-streetview-wander]').forEach((node) => node.remove());
                 const callbackName = `__streetViewWanderReady_${Date.now()}`;
+                const failLoad = (message) => {
+                  if (loadedKey === apiKey) {
+                    loadedKey = null;
+                    mapsPromise = null;
+                  }
+                  delete window[callbackName];
+                  reject(new Error(message));
+                };
                 window[callbackName] = () => {
                   if (window.google?.maps?.StreetViewPanorama) {
                     resolve(window.google);
                   } else {
-                    reject(new Error('Google Maps did not initialize.'));
+                    failLoad('Google Maps did not initialize.');
                   }
                   delete window[callbackName];
                 };
@@ -500,7 +516,7 @@ struct StreetViewWebView: NSViewRepresentable {
                 script.async = true;
                 script.defer = true;
                 script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
-                script.onerror = () => reject(new Error('Could not load Google Maps.'));
+                script.onerror = () => failLoad('Could not load Google Maps.');
                 document.head.appendChild(script);
               });
 
@@ -557,6 +573,30 @@ struct StreetViewWebView: NSViewRepresentable {
 
             mapResizeHandleElement.addEventListener('pointerup', finishResize);
             mapResizeHandleElement.addEventListener('pointercancel', finishResize);
+            mapResizeHandleElement.addEventListener('keydown', (event) => {
+              if (!isMapExpanded) {
+                return;
+              }
+              const step = event.shiftKey ? 40 : 20;
+              const rect = mapPanelElement.getBoundingClientRect();
+              let nextWidth = rect.width;
+              let nextHeight = rect.height;
+
+              if (event.key === 'ArrowLeft') {
+                nextWidth += step;
+              } else if (event.key === 'ArrowRight') {
+                nextWidth -= step;
+              } else if (event.key === 'ArrowUp') {
+                nextHeight += step;
+              } else if (event.key === 'ArrowDown') {
+                nextHeight -= step;
+              } else {
+                return;
+              }
+
+              setMapPanelSize(nextWidth, nextHeight);
+              event.preventDefault();
+            });
 
             window.addEventListener('resize', () => {
               if (isMapExpanded && mapPanelElement.style.width && mapPanelElement.style.height) {

@@ -70,66 +70,96 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 8) {
-            Button("History") {
-                withAnimation(.snappy) {
-                    model.activePanel = model.activePanel == .history ? .none : .history
-                }
-            }
-            .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .history))
-
-            Button("Details") {
-                withAnimation(.snappy) {
-                    model.activePanel = model.activePanel == .details ? .none : .details
-                }
-            }
-            .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .details))
-
-            Button {
-                withAnimation(.snappy) {
-                    model.activePanel = model.activePanel == .scope ? .none : .scope
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Text("Scope")
-                        .foregroundStyle(.secondary)
-                    Text(model.selectedScopeLabel)
-                        .lineLimit(1)
-                }
-            }
-            .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .scope))
-            .frame(maxWidth: 240)
-
-            Button {
-                model.isSettingsPresented = true
-            } label: {
-                Image(systemName: "key")
-            }
-            .buttonStyle(IconOverlayButtonStyle())
-            .help("API key settings")
-
-            if let label = updates.updateLabel {
-                Button(label) {
-                    updates.updateNow()
-                }
-                .buttonStyle(OverlayButtonStyle(isActive: true))
-            } else {
+        HStack(spacing: 10) {
+            toolbarGroup {
                 Button {
-                    updates.isSheetPresented = true
+                    withAnimation(.snappy) {
+                        model.activePanel = model.activePanel == .history ? .none : .history
+                    }
                 } label: {
-                    Image(systemName: "arrow.down.circle")
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .history))
+
+                Button {
+                    withAnimation(.snappy) {
+                        model.activePanel = model.activePanel == .details ? .none : .details
+                    }
+                } label: {
+                    Label("Details", systemImage: "info.circle")
+                }
+                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .details))
+            }
+
+            toolbarGroup {
+                Button {
+                    withAnimation(.snappy) {
+                        model.activePanel = model.activePanel == .scope ? .none : .scope
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text("Scope")
+                            .foregroundStyle(.secondary)
+                        Text(model.selectedScopeLabel)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .scope))
+                .frame(width: 190)
+            }
+
+            toolbarGroup {
+                Button {
+                    model.isSettingsPresented = true
+                } label: {
+                    Image(systemName: "key")
                 }
                 .buttonStyle(IconOverlayButtonStyle())
-                .help("Updates")
+                .help("API key settings")
+                .accessibilityLabel("API key settings")
+
+                if let label = updates.updateLabel {
+                    Button {
+                        updates.updateNow()
+                    } label: {
+                        Label(label, systemImage: "arrow.down.circle")
+                            .lineLimit(1)
+                    }
+                    .buttonStyle(OverlayButtonStyle(isActive: true))
+                    .frame(maxWidth: 150)
+                } else {
+                    Button {
+                        updates.isSheetPresented = true
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                    .buttonStyle(IconOverlayButtonStyle())
+                    .help("Updates")
+                    .accessibilityLabel("Updates")
+                }
             }
 
-            Button(model.isLoading ? "Finding..." : "Random place") {
+            Button {
                 model.randomPlace()
+            } label: {
+                Label(model.isLoading ? "Finding..." : "Random place", systemImage: "shuffle")
             }
             .disabled(model.isLoading)
             .buttonStyle(PrimaryOverlayButtonStyle())
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 4) {
+            content()
+        }
+        .padding(4)
+        .background(Color(red: 0.07, green: 0.08, blue: 0.08).opacity(0.86), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.12))
+        )
     }
 
     private var bottomStatus: some View {
@@ -420,17 +450,25 @@ struct OverlayButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .bold))
             .lineLimit(1)
-            .padding(.horizontal, 14)
-            .frame(height: 42)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
             .foregroundStyle(.white)
             .background(
-                (isActive ? Color.black.opacity(0.82) : Color.black.opacity(configuration.isPressed ? 0.78 : 0.62)),
+                overlayFill(isPressed: configuration.isPressed),
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(isActive ? 0.28 : 0.14))
+                    .stroke(.white.opacity(isActive ? 0.22 : 0))
             )
+    }
+
+    private func overlayFill(isPressed: Bool) -> Color {
+        if isActive {
+            return Color.white.opacity(isPressed ? 0.18 : 0.14)
+        }
+        return Color.white.opacity(isPressed ? 0.10 : 0.02)
     }
 }
 
@@ -438,15 +476,11 @@ struct IconOverlayButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 15, weight: .bold))
-            .frame(width: 42, height: 42)
+            .frame(width: 34, height: 34)
             .foregroundStyle(.white)
             .background(
-                Color.black.opacity(configuration.isPressed ? 0.78 : 0.62),
+                Color.white.opacity(configuration.isPressed ? 0.12 : 0.02),
                 in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.14))
             )
     }
 }
@@ -456,12 +490,18 @@ struct PrimaryOverlayButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(size: 13, weight: .bold))
             .lineLimit(1)
+            .labelStyle(.titleAndIcon)
             .padding(.horizontal, 16)
             .frame(height: 42)
             .foregroundStyle(.white)
             .background(
-                Color(red: 0.08, green: configuration.isPressed ? 0.32 : 0.43, blue: 0.37),
+                Color(red: 0.08, green: configuration.isPressed ? 0.36 : 0.46, blue: 0.39),
                 in: RoundedRectangle(cornerRadius: 8)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.white.opacity(0.14))
+            )
+            .shadow(color: .black.opacity(configuration.isPressed ? 0.10 : 0.24), radius: 14, y: 8)
     }
 }

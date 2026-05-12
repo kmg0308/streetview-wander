@@ -138,6 +138,21 @@ enum UpdateService {
         /usr/bin/ditto "$NEW_APP" "$TMP_TARGET"
         /usr/bin/xattr -cr "$TMP_TARGET" 2>/dev/null || true
 
+        BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$TMP_TARGET/Contents/Info.plist" 2>/dev/null || true)"
+        EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$TMP_TARGET/Contents/Info.plist" 2>/dev/null || true)"
+        if [[ "$BUNDLE_ID" != "com.kangmingyu.streetviewwander" || "$EXECUTABLE" != "StreetViewWander" ]]; then
+            /bin/echo "Downloaded app bundle identity is invalid: $BUNDLE_ID / $EXECUTABLE" >&2
+            exit 5
+        fi
+        if [[ ! -x "$TMP_TARGET/Contents/MacOS/StreetViewWander" ]]; then
+            /bin/echo "Downloaded app executable is missing." >&2
+            exit 6
+        fi
+        if ! /usr/bin/codesign --verify --deep --strict "$TMP_TARGET" >/dev/null 2>&1; then
+            /bin/echo "Downloaded app code signature is invalid." >&2
+            exit 7
+        fi
+
         if /bin/kill -0 "$APP_PID" 2>/dev/null; then
             /bin/kill -TERM "$APP_PID" 2>/dev/null || true
         fi
@@ -265,11 +280,6 @@ enum UpdateService {
                 let name = assetName($0)
                 return name.hasPrefix("streetviewwander-") && name.hasSuffix(".zip")
             }
-            ?? assets.first {
-                let name = assetName($0)
-                return name.hasSuffix(".zip") && name.contains("streetview")
-            }
-            ?? assets.first { assetName($0).hasSuffix(".zip") }
     }
 
     private static func assetName(_ asset: [String: Any]) -> String {

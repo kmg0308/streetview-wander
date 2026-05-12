@@ -46,8 +46,8 @@ func drawIcon(size: Int) throws -> Data {
         yRadius: CGFloat(size) * 0.20
     )
     NSGradient(
-        starting: NSColor(red: 0.98, green: 0.99, blue: 1.00, alpha: 1),
-        ending: NSColor(red: 0.80, green: 0.86, blue: 0.91, alpha: 1)
+        starting: NSColor(red: 0.02, green: 0.03, blue: 0.03, alpha: 1),
+        ending: NSColor(red: 0.08, green: 0.10, blue: 0.10, alpha: 1)
     )?.draw(in: tile, angle: -70)
 
     let globeRect = NSRect(

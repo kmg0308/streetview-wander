@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Security
 import StreetViewWanderCore
 import SwiftUI
 
@@ -13,10 +14,10 @@ final class WanderModel: ObservableObject {
     }
 
     @Published var browserAPIKey: String {
-        didSet { defaults.set(browserAPIKey, forKey: DefaultsKey.browserAPIKey) }
+        didSet { persistSecret(browserAPIKey, key: DefaultsKey.browserAPIKey) }
     }
     @Published var metadataAPIKey: String {
-        didSet { defaults.set(metadataAPIKey, forKey: DefaultsKey.metadataAPIKey) }
+        didSet { persistSecret(metadataAPIKey, key: DefaultsKey.metadataAPIKey) }
     }
     @Published var selectedContinentId: String {
         didSet {
@@ -54,25 +55,32 @@ final class WanderModel: ObservableObject {
     }
 
     private let defaults: UserDefaults
+    private let keychainStore: KeychainStore
     private let countryDataStore: CountryDataStore
     private let historyStore: HistoryStore
     private let panoramaFinder: PanoramaFinder
 
     init(
         defaults: UserDefaults = .standard,
+        keychainStore: KeychainStore = KeychainStore(),
         countryDataStore: CountryDataStore = CountryDataStore(),
         historyStore: HistoryStore = HistoryStore()
     ) {
         self.defaults = defaults
+        self.keychainStore = keychainStore
         self.countryDataStore = countryDataStore
         self.historyStore = historyStore
         self.panoramaFinder = PanoramaFinder(countryDataStore: countryDataStore)
 
-        self.browserAPIKey = defaults.string(forKey: DefaultsKey.browserAPIKey) ?? ""
-        self.metadataAPIKey = defaults.string(forKey: DefaultsKey.metadataAPIKey) ?? ""
+        let legacyBrowserAPIKey = defaults.string(forKey: DefaultsKey.browserAPIKey)
+        let legacyMetadataAPIKey = defaults.string(forKey: DefaultsKey.metadataAPIKey)
+        self.browserAPIKey = keychainStore.string(for: DefaultsKey.browserAPIKey) ?? legacyBrowserAPIKey ?? ""
+        self.metadataAPIKey = keychainStore.string(for: DefaultsKey.metadataAPIKey) ?? legacyMetadataAPIKey ?? ""
         self.selectedContinentId = defaults.string(forKey: DefaultsKey.selectedContinentId) ?? ""
         self.selectedCountryId = defaults.string(forKey: DefaultsKey.selectedCountryId) ?? ""
 
+        persistSecret(browserAPIKey, key: DefaultsKey.browserAPIKey)
+        persistSecret(metadataAPIKey, key: DefaultsKey.metadataAPIKey)
         loadLocalData()
     }
 
@@ -169,6 +177,21 @@ final class WanderModel: ObservableObject {
         }
     }
 
+    private func persistSecret(_ value: String, key: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            keychainStore.deleteString(for: key)
+            defaults.removeObject(forKey: key)
+            return
+        }
+
+        if keychainStore.setString(value, for: key) {
+            defaults.removeObject(forKey: key)
+        } else {
+            defaults.set(value, forKey: key)
+        }
+    }
+
     private func recentContinentLabels() -> [String] {
         history.prefix(60).compactMap {
             $0.continentLabel ?? legacyContinentLabel(for: $0.areaLabel)
@@ -251,5 +274,54 @@ final class WanderModel: ObservableObject {
         } catch {
             errorText = error.localizedDescription
         }
+    }
+}
+
+struct KeychainStore {
+    private let service = "com.kangmingyu.streetviewwander"
+
+    func string(for account: String) -> String? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    @discardableResult
+    func setString(_ value: String, for account: String) -> Bool {
+        guard let data = value.data(using: .utf8) else {
+            return false
+        }
+
+        var query = baseQuery(account: account)
+        let attributes = [kSecValueData as String: data]
+        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if status == errSecSuccess {
+            return true
+        }
+        guard status == errSecItemNotFound else {
+            return false
+        }
+
+        query[kSecValueData as String] = data
+        return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    func deleteString(for account: String) {
+        SecItemDelete(baseQuery(account: account) as CFDictionary)
+    }
+
+    private func baseQuery(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
     }
 }
