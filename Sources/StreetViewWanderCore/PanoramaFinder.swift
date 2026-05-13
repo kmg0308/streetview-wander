@@ -28,10 +28,64 @@ public enum PanoramaFinderError: LocalizedError {
 
 public struct SearchCandidate: Equatable {
     public var requestedLocation: PanoramaLocation
+    public var densityTier: SearchDensityTier
     public var areaLabel: String
     public var scopeLabel: String
     public var continentLabel: String?
     public var countryLabel: String?
+
+    public var searchRadius: Int {
+        densityTier.searchRadius
+    }
+}
+
+public enum SearchDensityTier: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case tight
+    case local
+    case wide
+
+    public var searchRadius: Int {
+        switch self {
+        case .tight:
+            120
+        case .local:
+            350
+        case .wide:
+            800
+        }
+    }
+
+    public static func classify(
+        requestedLocation: PanoramaLocation,
+        panoramaLocation: PanoramaLocation
+    ) -> SearchDensityTier {
+        let distance = distanceMeters(from: requestedLocation, to: panoramaLocation)
+        if distance <= Double(SearchDensityTier.tight.searchRadius) {
+            return .tight
+        }
+        if distance <= Double(SearchDensityTier.local.searchRadius) {
+            return .local
+        }
+        return .wide
+    }
+
+    public static func distanceMeters(from start: PanoramaLocation, to end: PanoramaLocation) -> Double {
+        let earthRadiusMeters = 6_371_000.0
+        let startLat = radians(start.lat)
+        let endLat = radians(end.lat)
+        let deltaLat = radians(end.lat - start.lat)
+        let deltaLng = radians(end.lng - start.lng)
+
+        let a = sin(deltaLat / 2) * sin(deltaLat / 2)
+            + cos(startLat) * cos(endLat) * sin(deltaLng / 2) * sin(deltaLng / 2)
+        let clampedA = min(1, max(0, a))
+        let c = 2 * atan2(sqrt(clampedA), sqrt(1 - clampedA))
+        return earthRadiusMeters * c
+    }
+
+    private static func radians(_ degrees: Double) -> Double {
+        degrees * .pi / 180
+    }
 }
 
 public actor PanoramaFinder {
@@ -47,6 +101,8 @@ public actor PanoramaFinder {
         metadataAPIKey: String,
         selection: SearchSelection,
         recentContinents: [String] = [],
+        recentCountries: [String] = [],
+        recentDensityTiers: [SearchDensityTier] = [],
         onMetadataRequest: (@Sendable () async -> Void)? = nil
     ) async throws -> Panorama {
         let apiKey = metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,12 +119,15 @@ public actor PanoramaFinder {
             let candidate = try SearchSampler.pickCandidate(
                 scope: scope,
                 recentContinents: recentContinents,
+                recentCountries: recentCountries,
+                recentDensityTiers: recentDensityTiers,
                 globalPlan: globalPlan,
                 attempt: attempt
             )
             let metadata = try await metadata(
                 apiKey: apiKey,
                 location: candidate.requestedLocation,
+                radius: candidate.searchRadius,
                 onRequest: onMetadataRequest
             )
             lastStatus = metadata.errorMessage ?? metadata.status
@@ -106,13 +165,14 @@ public actor PanoramaFinder {
     private func metadata(
         apiKey: String,
         location: PanoramaLocation,
+        radius: Int,
         onRequest: (@Sendable () async -> Void)?
     ) async throws -> PanoramaMetadata {
         var components = URLComponents(string: "https://maps.googleapis.com/maps/api/streetview/metadata")
         components?.queryItems = [
             URLQueryItem(name: "key", value: apiKey),
             URLQueryItem(name: "location", value: "\(location.lat),\(location.lng)"),
-            URLQueryItem(name: "radius", value: "800"),
+            URLQueryItem(name: "radius", value: "\(radius)"),
             URLQueryItem(name: "source", value: "outdoor")
         ]
 
@@ -140,6 +200,11 @@ public enum SearchSampler {
     private static let pointSampleAttempts = 40
     private static let recentContinentWindow = 60
     private static let recentContinentPenalty = 0.65
+    private static let recentCountryWindow = 80
+    private static let recentCountryPenalty = 0.45
+    private static let recentDensityWindow = 60
+    private static let recentDensityPenalty = 0.85
+    private static let densityFocusedAttempts = 6
     private static let antarcticaWorldWeight = 0.05
     private static let primaryWorldContinents: Set<String> = [
         "Africa",
@@ -175,11 +240,15 @@ public enum SearchSampler {
     public static func pickCandidate(
         countries: [CountryArea],
         selection: SearchSelection,
-        recentContinents: [String] = []
+        recentContinents: [String] = [],
+        recentCountries: [String] = [],
+        recentDensityTiers: [SearchDensityTier] = []
     ) throws -> SearchCandidate {
         try pickCandidate(
             scope: SearchScope(countries: countries, selection: selection),
-            recentContinents: recentContinents
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers
         )
     }
 
@@ -187,6 +256,8 @@ public enum SearchSampler {
         countries: [CountryArea],
         selection: SearchSelection,
         recentContinents: [String] = [],
+        recentCountries: [String] = [],
+        recentDensityTiers: [SearchDensityTier] = [],
         attempts: ClosedRange<Int>
     ) throws -> [SearchCandidate] {
         let scope = try SearchScope(countries: countries, selection: selection)
@@ -195,6 +266,8 @@ public enum SearchSampler {
             try pickCandidate(
                 scope: scope,
                 recentContinents: recentContinents,
+                recentCountries: recentCountries,
+                recentDensityTiers: recentDensityTiers,
                 globalPlan: globalPlan,
                 attempt: $0
             )
@@ -215,9 +288,13 @@ public enum SearchSampler {
     static func pickCandidate(
         scope: SearchScope,
         recentContinents: [String] = [],
+        recentCountries: [String] = [],
+        recentDensityTiers: [SearchDensityTier] = [],
         globalPlan: GlobalSearchPlan? = nil,
         attempt: Int = 1
     ) throws -> SearchCandidate {
+        let densityTier = try pickDensityTier(recentDensityTiers: recentDensityTiers, attempt: attempt)
+
         switch scope {
         case .global(let label, let countries):
             let countriesByContinent = Dictionary(grouping: countries, by: \.continent)
@@ -226,12 +303,25 @@ public enum SearchSampler {
                     countriesByContinent: countriesByContinent,
                     recentContinents: recentContinents
                 )
-            return try pickGlobalCandidate(label: label, countries: countries, continent: continent)
+            return try pickGlobalCandidate(
+                label: label,
+                countries: countries,
+                continent: continent,
+                densityTier: densityTier,
+                recentCountries: recentCountries
+            )
         case .countries(let label, let countries, let selectedCountry):
-            let country = try pickWeighted(countries) { countrySamplingWeight($0) }
+            let country = try pickWeighted(countries) {
+                countrySamplingWeight(
+                    $0,
+                    availableCountryCount: countries.count,
+                    recentCountries: recentCountries
+                )
+            }
             let areaLabel = selectedCountry == nil ? "\(label) · \(country.name)" : country.name
             return SearchCandidate(
                 requestedLocation: try pickPoint(in: country),
+                densityTier: densityTier,
                 areaLabel: areaLabel,
                 scopeLabel: label,
                 continentLabel: country.continent,
@@ -276,16 +366,25 @@ public enum SearchSampler {
     private static func pickGlobalCandidate(
         label: String,
         countries: [CountryArea],
-        continent: String
+        continent: String,
+        densityTier: SearchDensityTier,
+        recentCountries: [String]
     ) throws -> SearchCandidate {
         let scopedCountries = countries.filter { $0.continent == continent }
         guard !scopedCountries.isEmpty else {
             throw PanoramaFinderError.invalidLocationFilter("Unknown continent: \(continent)")
         }
 
-        let country = try pickWeighted(scopedCountries) { countrySamplingWeight($0) }
+        let country = try pickWeighted(scopedCountries) {
+            countrySamplingWeight(
+                $0,
+                availableCountryCount: scopedCountries.count,
+                recentCountries: recentCountries
+            )
+        }
         return SearchCandidate(
             requestedLocation: try pickPoint(in: country),
+            densityTier: densityTier,
             areaLabel: country.name,
             scopeLabel: label,
             continentLabel: country.continent,
@@ -452,11 +551,78 @@ public enum SearchSampler {
         return baseWeight / (1 + overrepresentedCount * recentContinentPenalty)
     }
 
-    private static func countrySamplingWeight(_ country: CountryArea) -> Double {
+    private static func pickDensityTier(
+        recentDensityTiers: [SearchDensityTier],
+        attempt: Int
+    ) throws -> SearchDensityTier {
+        try pickWeighted(SearchDensityTier.allCases) {
+            densityTierWeight($0, recentDensityTiers: recentDensityTiers, attempt: attempt)
+        }
+    }
+
+    private static func densityTierWeight(
+        _ tier: SearchDensityTier,
+        recentDensityTiers: [SearchDensityTier],
+        attempt: Int
+    ) -> Double {
+        let baseWeight = densityTierBaseWeight(tier, attempt: attempt)
+        let recentCounts = Dictionary(
+            grouping: recentDensityTiers.prefix(recentDensityWindow),
+            by: { $0 }
+        ).mapValues(\.count)
+        let consideredRecentCount = recentCounts.values.reduce(0, +)
+        guard consideredRecentCount > 0 else {
+            return baseWeight
+        }
+
+        let expectedCount = Double(consideredRecentCount) / Double(SearchDensityTier.allCases.count)
+        let overrepresentedCount = max(0, Double(recentCounts[tier, default: 0]) - expectedCount)
+        return baseWeight / (1 + overrepresentedCount * recentDensityPenalty)
+    }
+
+    private static func densityTierBaseWeight(_ tier: SearchDensityTier, attempt: Int) -> Double {
+        if attempt <= densityFocusedAttempts {
+            switch tier {
+            case .tight:
+                return 0.08
+            case .local:
+                return 0.22
+            case .wide:
+                return 0.70
+            }
+        }
+
+        switch tier {
+        case .tight:
+            return 0.02
+        case .local:
+            return 0.08
+        case .wide:
+            return 0.90
+        }
+    }
+
+    private static func countrySamplingWeight(
+        _ country: CountryArea,
+        availableCountryCount: Int,
+        recentCountries: [String]
+    ) -> Double {
         // Blend equal-country sampling with softened area and population signals so large countries do not dominate.
         let areaSignal = pow(max(0.0001, country.weight), 0.25)
         let populationSignal = sqrt(log10(max(10, country.population)))
-        return 1 + areaSignal + populationSignal
+        let baseWeight = 1 + areaSignal + populationSignal
+        let recentCounts = Dictionary(
+            grouping: recentCountries.prefix(recentCountryWindow),
+            by: { $0 }
+        ).mapValues(\.count)
+        let consideredRecentCount = recentCounts.values.reduce(0, +)
+        guard consideredRecentCount > 0 else {
+            return baseWeight
+        }
+
+        let expectedCount = Double(consideredRecentCount) / Double(max(1, availableCountryCount))
+        let overrepresentedCount = max(0, Double(recentCounts[country.name, default: 0]) - expectedCount)
+        return baseWeight / (1 + overrepresentedCount * recentCountryPenalty)
     }
 }
 

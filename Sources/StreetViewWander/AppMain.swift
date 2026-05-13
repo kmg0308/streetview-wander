@@ -192,9 +192,9 @@ struct ContentView: View {
 
     private var metadataUsageStatus: String {
         if let remaining = model.metadataRequestsRemaining {
-            return "Metadata API \(formatCount(model.metadataRequestsUsed))/\(formatCount(model.metadataRequestLimit)) · \(formatCount(remaining)) left"
+            return "Metadata checks \(formatCount(model.metadataRequestsUsed))/\(formatCount(model.metadataRequestLimit)) · \(formatCount(remaining)) left"
         }
-        return "Metadata API used \(formatCount(model.metadataRequestsUsed)) · no limit"
+        return "Metadata checks \(formatCount(model.metadataRequestsUsed)) · no limit"
     }
 
     private var sidePanel: some View {
@@ -280,7 +280,7 @@ struct DetailsPanel: View {
                 }
                 detail("Latitude", formatCoord(panorama.location.lat))
                 detail("Longitude", formatCoord(panorama.location.lng))
-                detail("Attempts", "\(panorama.attempts)")
+                detail("Metadata checks", "\(panorama.attempts)")
                 detail("Image date", panorama.date ?? "Unknown")
 
                 Button("Open in Google Maps") {
@@ -400,7 +400,7 @@ struct SettingsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Metadata API Request Count")
+                Text("Metadata Check Count")
                     .font(.system(size: 13, weight: .semibold))
 
                 HStack(spacing: 16) {

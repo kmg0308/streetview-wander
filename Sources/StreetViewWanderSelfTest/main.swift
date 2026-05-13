@@ -101,13 +101,110 @@ guard plannedCandidates[focusedAttemptCount].continentLabel != focusedContinent 
     ])
 }
 
+var radiusCounts: [Int: Int] = [:]
+for attempt in 1...6_000 {
+    let candidate = try SearchSampler.pickCandidates(
+        countries: countries,
+        selection: SearchSelection(),
+        attempts: attempt...attempt
+    )[0]
+    radiusCounts[candidate.searchRadius, default: 0] += 1
+}
+
+for tier in SearchDensityTier.allCases {
+    let share = Double(radiusCounts[tier.searchRadius, default: 0]) / 6_000
+    guard share > 0.01 else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 11, userInfo: [
+            NSLocalizedDescriptionKey: "Search radius tier \(tier.rawValue) is too rare: \(share)."
+        ])
+    }
+}
+
+let wideRadiusShare = Double(radiusCounts[SearchDensityTier.wide.searchRadius, default: 0]) / 6_000
+guard wideRadiusShare > 0.80 else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 12, userInfo: [
+        NSLocalizedDescriptionKey: "Wide search radius should remain the default for request efficiency: \(wideRadiusShare)."
+    ])
+}
+
+guard SearchDensityTier.classify(
+    requestedLocation: PanoramaLocation(lat: 0, lng: 0),
+    panoramaLocation: PanoramaLocation(lat: 0, lng: 0.001)
+) == .tight,
+SearchDensityTier.classify(
+    requestedLocation: PanoramaLocation(lat: 0, lng: 0),
+    panoramaLocation: PanoramaLocation(lat: 0, lng: 0.002)
+) == .local,
+SearchDensityTier.classify(
+    requestedLocation: PanoramaLocation(lat: 0, lng: 0),
+    panoramaLocation: PanoramaLocation(lat: 0, lng: 0.005)
+) == .wide else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 13, userInfo: [
+        NSLocalizedDescriptionKey: "Search density tier classification is incorrect."
+    ])
+}
+
+let wideHeavyHistory = Array(repeating: SearchDensityTier.wide, count: 60)
+var correctedWideCount = 0
+for attempt in 1...4_000 {
+    let candidate = try SearchSampler.pickCandidates(
+        countries: countries,
+        selection: SearchSelection(),
+        recentDensityTiers: wideHeavyHistory,
+        attempts: attempt...attempt
+    )[0]
+    if candidate.densityTier == .wide {
+        correctedWideCount += 1
+    }
+}
+
+let correctedWideShare = Double(correctedWideCount) / 4_000
+guard correctedWideShare < 0.24 else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 14, userInfo: [
+        NSLocalizedDescriptionKey: "Recent density correction did not lower wide radius enough: \(correctedWideShare)."
+    ])
+}
+
+if let northAmerica = Dictionary(grouping: countries, by: \.continent)["North America"],
+   let repeatedCountry = northAmerica.first {
+    var baselineCount = 0
+    for _ in 0..<4_000 {
+        let candidate = try SearchSampler.pickCandidate(
+            countries: countries,
+            selection: SearchSelection(continentId: "North America")
+        )
+        if candidate.countryLabel == repeatedCountry.name {
+            baselineCount += 1
+        }
+    }
+
+    var correctedCount = 0
+    let repeatedHistory = Array(repeating: repeatedCountry.name, count: 80)
+    for _ in 0..<4_000 {
+        let candidate = try SearchSampler.pickCandidate(
+            countries: countries,
+            selection: SearchSelection(continentId: "North America"),
+            recentCountries: repeatedHistory
+        )
+        if candidate.countryLabel == repeatedCountry.name {
+            correctedCount += 1
+        }
+    }
+
+    guard correctedCount < baselineCount else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 15, userInfo: [
+            NSLocalizedDescriptionKey: "Recent country correction did not lower repeated country sampling."
+        ])
+    }
+}
+
 if let firstCountry = options.countries.first {
     let countryCandidate = try SearchSampler.pickCandidate(
         countries: countries,
         selection: SearchSelection(continentId: firstCountry.continent, countryId: firstCountry.id)
     )
     guard countryCandidate.countryLabel == firstCountry.label else {
-        throw NSError(domain: "StreetViewWanderSelfTest", code: 11, userInfo: [
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 16, userInfo: [
             NSLocalizedDescriptionKey: "Country-scoped sampling returned the wrong country."
         ])
     }
@@ -120,7 +217,7 @@ if let firstCountry = options.countries.first {
         selection: SearchSelection(continentId: firstCountry.continent, countryId: firstCountry.id)
     )
     guard resolvedCountryCandidate == nil else {
-        throw NSError(domain: "StreetViewWanderSelfTest", code: 12, userInfo: [
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 17, userInfo: [
             NSLocalizedDescriptionKey: "Country-scoped sampling accepted a panorama outside known country bounds."
         ])
     }
@@ -134,7 +231,7 @@ let env = EnvFile.parse(
 )
 guard env["VITE_GOOGLE_MAPS_API_KEY"] == "browser",
       env["GOOGLE_STREET_VIEW_METADATA_API_KEY"] == "metadata" else {
-    throw NSError(domain: "StreetViewWanderSelfTest", code: 13, userInfo: [
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 18, userInfo: [
         NSLocalizedDescriptionKey: ".env parsing failed."
     ])
 }

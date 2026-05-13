@@ -179,6 +179,8 @@ final class WanderModel: ObservableObject {
             countryId: selectedCountryId
         )
         let recentContinents = recentContinentLabels()
+        let recentCountries = recentCountryLabels()
+        let recentDensityTiers = recentSearchDensityTiers()
         let metadataAPIKey = metadataAPIKey
 
         Task {
@@ -187,13 +189,15 @@ final class WanderModel: ObservableObject {
                     metadataAPIKey: metadataAPIKey,
                     selection: selection,
                     recentContinents: recentContinents,
+                    recentCountries: recentCountries,
+                    recentDensityTiers: recentDensityTiers,
                     onMetadataRequest: { [weak self] in
                         await self?.recordMetadataRequest()
                     }
                 )
                 panorama = next
                 history = try historyStore.append(next)
-                statusText = "\(next.areaLabel) · \(next.attempts) \(next.attempts == 1 ? "try" : "tries")"
+                statusText = "\(next.areaLabel) · \(next.attempts) metadata \(next.attempts == 1 ? "check" : "checks")"
                 activePanel = .none
             } catch {
                 errorText = error.localizedDescription
@@ -230,6 +234,19 @@ final class WanderModel: ObservableObject {
     private func recentContinentLabels() -> [String] {
         history.prefix(60).compactMap {
             $0.continentLabel ?? legacyContinentLabel(for: $0.areaLabel)
+        }
+    }
+
+    private func recentCountryLabels() -> [String] {
+        history.prefix(80).compactMap(\.countryLabel)
+    }
+
+    private func recentSearchDensityTiers() -> [SearchDensityTier] {
+        history.prefix(60).map {
+            SearchDensityTier.classify(
+                requestedLocation: $0.requestedLocation,
+                panoramaLocation: $0.location
+            )
         }
     }
 
