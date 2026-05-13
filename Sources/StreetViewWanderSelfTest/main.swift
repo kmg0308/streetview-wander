@@ -89,7 +89,7 @@ guard let focusedContinent = plannedCandidates.first?.continentLabel else {
     ])
 }
 
-let focusedAttemptCount = focusedContinent == "Antarctica" ? 8 : 36
+let focusedAttemptCount = focusedContinent == "Antarctica" ? 8 : 18
 guard plannedCandidates.prefix(focusedAttemptCount).allSatisfy({ $0.continentLabel == focusedContinent }) else {
     throw NSError(domain: "StreetViewWanderSelfTest", code: 9, userInfo: [
         NSLocalizedDescriptionKey: "Planned worldwide sampling did not keep early retries in one continent."
@@ -102,6 +102,7 @@ guard plannedCandidates[focusedAttemptCount].continentLabel != focusedContinent 
 }
 
 var radiusCounts: [Int: Int] = [:]
+var sceneCounts: [SearchSceneKind: Int] = [:]
 for attempt in 1...6_000 {
     let candidate = try SearchSampler.pickCandidates(
         countries: countries,
@@ -109,11 +110,12 @@ for attempt in 1...6_000 {
         attempts: attempt...attempt
     )[0]
     radiusCounts[candidate.searchRadius, default: 0] += 1
+    sceneCounts[candidate.sceneKind, default: 0] += 1
 }
 
 for tier in SearchDensityTier.allCases {
     let share = Double(radiusCounts[tier.searchRadius, default: 0]) / 6_000
-    guard share > 0.01 else {
+    guard share > 0.03 else {
         throw NSError(domain: "StreetViewWanderSelfTest", code: 11, userInfo: [
             NSLocalizedDescriptionKey: "Search radius tier \(tier.rawValue) is too rare: \(share)."
         ])
@@ -121,10 +123,19 @@ for tier in SearchDensityTier.allCases {
 }
 
 let wideRadiusShare = Double(radiusCounts[SearchDensityTier.wide.searchRadius, default: 0]) / 6_000
-guard wideRadiusShare > 0.80 else {
+guard wideRadiusShare > 0.30, wideRadiusShare < 0.75 else {
     throw NSError(domain: "StreetViewWanderSelfTest", code: 12, userInfo: [
-        NSLocalizedDescriptionKey: "Wide search radius should remain the default for request efficiency: \(wideRadiusShare)."
+        NSLocalizedDescriptionKey: "Wide search radius should stay balanced for request efficiency and scene variety: \(wideRadiusShare)."
     ])
+}
+
+for sceneKind in SearchSceneKind.allCases {
+    let share = Double(sceneCounts[sceneKind, default: 0]) / 6_000
+    guard share > 0.06 else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 19, userInfo: [
+            NSLocalizedDescriptionKey: "Search scene \(sceneKind.rawValue) is too rare: \(share)."
+        ])
+    }
 }
 
 guard SearchDensityTier.classify(

@@ -4,6 +4,7 @@ public enum PanoramaFinderError: LocalizedError {
     case missingMetadataKey
     case invalidLocationFilter(String)
     case noPanoramaFound(Int, String)
+    case metadataRequestLimitReached
     case googleRequestFailed(Int)
     case googleResponseInvalid
     case samplingFailed(String)
@@ -16,6 +17,8 @@ public enum PanoramaFinderError: LocalizedError {
             message
         case .noPanoramaFound(let attempts, let status):
             "No panorama found after \(attempts) tries. Last status: \(status)."
+        case .metadataRequestLimitReached:
+            "Metadata request limit reached. Increase the limit in Settings or reset the used count."
         case .googleRequestFailed(let statusCode):
             "Google metadata request failed with HTTP \(statusCode)."
         case .googleResponseInvalid:
@@ -28,6 +31,7 @@ public enum PanoramaFinderError: LocalizedError {
 
 public struct SearchCandidate: Equatable {
     public var requestedLocation: PanoramaLocation
+    public var sceneKind: SearchSceneKind
     public var densityTier: SearchDensityTier
     public var areaLabel: String
     public var scopeLabel: String
@@ -103,24 +107,31 @@ public actor PanoramaFinder {
         recentContinents: [String] = [],
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
+        recentSceneKinds: [SearchSceneKind] = [],
+        maxMetadataRequests: Int? = nil,
         onMetadataRequest: (@Sendable () async -> Void)? = nil
     ) async throws -> Panorama {
         let apiKey = metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else {
             throw PanoramaFinderError.missingMetadataKey
         }
+        if let maxMetadataRequests, maxMetadataRequests <= 0 {
+            throw PanoramaFinderError.metadataRequestLimitReached
+        }
 
         let countries = try countryDataStore.loadCountries()
         let scope = try SearchScope(countries: countries, selection: selection)
         let globalPlan = try SearchSampler.globalSearchPlan(scope: scope, recentContinents: recentContinents)
         var lastStatus = "NO_ATTEMPTS"
+        let attemptLimit = min(SearchSampler.maxAttempts, maxMetadataRequests ?? SearchSampler.maxAttempts)
 
-        for attempt in 1...SearchSampler.maxAttempts {
+        for attempt in 1...attemptLimit {
             let candidate = try SearchSampler.pickCandidate(
                 scope: scope,
                 recentContinents: recentContinents,
                 recentCountries: recentCountries,
                 recentDensityTiers: recentDensityTiers,
+                recentSceneKinds: recentSceneKinds,
                 globalPlan: globalPlan,
                 attempt: attempt
             )
@@ -145,6 +156,7 @@ public actor PanoramaFinder {
                     panoId: panoId,
                     location: location,
                     requestedLocation: candidate.requestedLocation,
+                    sceneKind: candidate.sceneKind,
                     heading: Int.random(in: 0..<360),
                     pitch: 0,
                     fov: 85,
@@ -159,7 +171,7 @@ public actor PanoramaFinder {
             }
         }
 
-        throw PanoramaFinderError.noPanoramaFound(SearchSampler.maxAttempts, lastStatus)
+        throw PanoramaFinderError.noPanoramaFound(attemptLimit, lastStatus)
     }
 
     private func metadata(
@@ -194,9 +206,9 @@ public actor PanoramaFinder {
 }
 
 public enum SearchSampler {
-    public static let maxAttempts = 90
+    public static let maxAttempts = 32
     // Keep most early retries inside one balanced continent so high-coverage regions do not steal every success.
-    private static let focusedGlobalAttempts = 36
+    private static let focusedGlobalAttempts = 18
     private static let pointSampleAttempts = 40
     private static let recentContinentWindow = 60
     private static let recentContinentPenalty = 0.65
@@ -204,7 +216,8 @@ public enum SearchSampler {
     private static let recentCountryPenalty = 0.45
     private static let recentDensityWindow = 60
     private static let recentDensityPenalty = 0.85
-    private static let densityFocusedAttempts = 6
+    private static let recentSceneWindow = 80
+    private static let recentScenePenalty = 0.75
     private static let antarcticaWorldWeight = 0.05
     private static let primaryWorldContinents: Set<String> = [
         "Africa",
@@ -213,6 +226,94 @@ public enum SearchSampler {
         "North America",
         "Oceania",
         "South America"
+    ]
+
+    private struct CityAnchor {
+        var countryId: String
+        var name: String
+        var location: PanoramaLocation
+    }
+
+    private static let cityAnchors: [CityAnchor] = [
+        CityAnchor(countryId: "ARG", name: "Buenos Aires", location: PanoramaLocation(lat: -34.6037, lng: -58.3816)),
+        CityAnchor(countryId: "AUS", name: "Sydney", location: PanoramaLocation(lat: -33.8688, lng: 151.2093)),
+        CityAnchor(countryId: "AUS", name: "Melbourne", location: PanoramaLocation(lat: -37.8136, lng: 144.9631)),
+        CityAnchor(countryId: "AUS", name: "Brisbane", location: PanoramaLocation(lat: -27.4698, lng: 153.0251)),
+        CityAnchor(countryId: "AUS", name: "Perth", location: PanoramaLocation(lat: -31.9523, lng: 115.8613)),
+        CityAnchor(countryId: "AUT", name: "Vienna", location: PanoramaLocation(lat: 48.2082, lng: 16.3738)),
+        CityAnchor(countryId: "BEL", name: "Brussels", location: PanoramaLocation(lat: 50.8503, lng: 4.3517)),
+        CityAnchor(countryId: "BRA", name: "Sao Paulo", location: PanoramaLocation(lat: -23.5558, lng: -46.6396)),
+        CityAnchor(countryId: "BRA", name: "Rio de Janeiro", location: PanoramaLocation(lat: -22.9068, lng: -43.1729)),
+        CityAnchor(countryId: "BRA", name: "Brasilia", location: PanoramaLocation(lat: -15.7939, lng: -47.8828)),
+        CityAnchor(countryId: "CAN", name: "Toronto", location: PanoramaLocation(lat: 43.6532, lng: -79.3832)),
+        CityAnchor(countryId: "CAN", name: "Vancouver", location: PanoramaLocation(lat: 49.2827, lng: -123.1207)),
+        CityAnchor(countryId: "CAN", name: "Montreal", location: PanoramaLocation(lat: 45.5019, lng: -73.5674)),
+        CityAnchor(countryId: "CAN", name: "Calgary", location: PanoramaLocation(lat: 51.0447, lng: -114.0719)),
+        CityAnchor(countryId: "CHE", name: "Zurich", location: PanoramaLocation(lat: 47.3769, lng: 8.5417)),
+        CityAnchor(countryId: "CHE", name: "Geneva", location: PanoramaLocation(lat: 46.2044, lng: 6.1432)),
+        CityAnchor(countryId: "CHL", name: "Santiago", location: PanoramaLocation(lat: -33.4489, lng: -70.6693)),
+        CityAnchor(countryId: "COL", name: "Bogota", location: PanoramaLocation(lat: 4.7110, lng: -74.0721)),
+        CityAnchor(countryId: "COL", name: "Medellin", location: PanoramaLocation(lat: 6.2442, lng: -75.5812)),
+        CityAnchor(countryId: "CZE", name: "Prague", location: PanoramaLocation(lat: 50.0755, lng: 14.4378)),
+        CityAnchor(countryId: "DEU", name: "Berlin", location: PanoramaLocation(lat: 52.5200, lng: 13.4050)),
+        CityAnchor(countryId: "DEU", name: "Munich", location: PanoramaLocation(lat: 48.1351, lng: 11.5820)),
+        CityAnchor(countryId: "DEU", name: "Hamburg", location: PanoramaLocation(lat: 53.5511, lng: 9.9937)),
+        CityAnchor(countryId: "DNK", name: "Copenhagen", location: PanoramaLocation(lat: 55.6761, lng: 12.5683)),
+        CityAnchor(countryId: "ECU", name: "Quito", location: PanoramaLocation(lat: -0.1807, lng: -78.4678)),
+        CityAnchor(countryId: "ESP", name: "Madrid", location: PanoramaLocation(lat: 40.4168, lng: -3.7038)),
+        CityAnchor(countryId: "ESP", name: "Barcelona", location: PanoramaLocation(lat: 41.3874, lng: 2.1686)),
+        CityAnchor(countryId: "FIN", name: "Helsinki", location: PanoramaLocation(lat: 60.1699, lng: 24.9384)),
+        CityAnchor(countryId: "FRA", name: "Paris", location: PanoramaLocation(lat: 48.8566, lng: 2.3522)),
+        CityAnchor(countryId: "FRA", name: "Lyon", location: PanoramaLocation(lat: 45.7640, lng: 4.8357)),
+        CityAnchor(countryId: "FRA", name: "Marseille", location: PanoramaLocation(lat: 43.2965, lng: 5.3698)),
+        CityAnchor(countryId: "GBR", name: "London", location: PanoramaLocation(lat: 51.5074, lng: -0.1278)),
+        CityAnchor(countryId: "GBR", name: "Edinburgh", location: PanoramaLocation(lat: 55.9533, lng: -3.1883)),
+        CityAnchor(countryId: "GHA", name: "Accra", location: PanoramaLocation(lat: 5.6037, lng: -0.1870)),
+        CityAnchor(countryId: "GRC", name: "Athens", location: PanoramaLocation(lat: 37.9838, lng: 23.7275)),
+        CityAnchor(countryId: "HUN", name: "Budapest", location: PanoramaLocation(lat: 47.4979, lng: 19.0402)),
+        CityAnchor(countryId: "IDN", name: "Jakarta", location: PanoramaLocation(lat: -6.2088, lng: 106.8456)),
+        CityAnchor(countryId: "IDN", name: "Bandung", location: PanoramaLocation(lat: -6.9175, lng: 107.6191)),
+        CityAnchor(countryId: "IRL", name: "Dublin", location: PanoramaLocation(lat: 53.3498, lng: -6.2603)),
+        CityAnchor(countryId: "ISR", name: "Tel Aviv", location: PanoramaLocation(lat: 32.0853, lng: 34.7818)),
+        CityAnchor(countryId: "ITA", name: "Rome", location: PanoramaLocation(lat: 41.9028, lng: 12.4964)),
+        CityAnchor(countryId: "ITA", name: "Milan", location: PanoramaLocation(lat: 45.4642, lng: 9.1900)),
+        CityAnchor(countryId: "JPN", name: "Tokyo", location: PanoramaLocation(lat: 35.6762, lng: 139.6503)),
+        CityAnchor(countryId: "JPN", name: "Osaka", location: PanoramaLocation(lat: 34.6937, lng: 135.5023)),
+        CityAnchor(countryId: "JPN", name: "Kyoto", location: PanoramaLocation(lat: 35.0116, lng: 135.7681)),
+        CityAnchor(countryId: "KEN", name: "Nairobi", location: PanoramaLocation(lat: -1.2921, lng: 36.8219)),
+        CityAnchor(countryId: "KOR", name: "Seoul", location: PanoramaLocation(lat: 37.5665, lng: 126.9780)),
+        CityAnchor(countryId: "KOR", name: "Busan", location: PanoramaLocation(lat: 35.1796, lng: 129.0756)),
+        CityAnchor(countryId: "MEX", name: "Mexico City", location: PanoramaLocation(lat: 19.4326, lng: -99.1332)),
+        CityAnchor(countryId: "MEX", name: "Guadalajara", location: PanoramaLocation(lat: 20.6597, lng: -103.3496)),
+        CityAnchor(countryId: "MYS", name: "Kuala Lumpur", location: PanoramaLocation(lat: 3.1390, lng: 101.6869)),
+        CityAnchor(countryId: "NLD", name: "Amsterdam", location: PanoramaLocation(lat: 52.3676, lng: 4.9041)),
+        CityAnchor(countryId: "NLD", name: "Rotterdam", location: PanoramaLocation(lat: 51.9244, lng: 4.4777)),
+        CityAnchor(countryId: "NOR", name: "Oslo", location: PanoramaLocation(lat: 59.9139, lng: 10.7522)),
+        CityAnchor(countryId: "NZL", name: "Auckland", location: PanoramaLocation(lat: -36.8509, lng: 174.7645)),
+        CityAnchor(countryId: "NZL", name: "Wellington", location: PanoramaLocation(lat: -41.2865, lng: 174.7762)),
+        CityAnchor(countryId: "PER", name: "Lima", location: PanoramaLocation(lat: -12.0464, lng: -77.0428)),
+        CityAnchor(countryId: "PHL", name: "Manila", location: PanoramaLocation(lat: 14.5995, lng: 120.9842)),
+        CityAnchor(countryId: "POL", name: "Warsaw", location: PanoramaLocation(lat: 52.2297, lng: 21.0122)),
+        CityAnchor(countryId: "POL", name: "Krakow", location: PanoramaLocation(lat: 50.0647, lng: 19.9450)),
+        CityAnchor(countryId: "PRT", name: "Lisbon", location: PanoramaLocation(lat: 38.7223, lng: -9.1393)),
+        CityAnchor(countryId: "PRT", name: "Porto", location: PanoramaLocation(lat: 41.1579, lng: -8.6291)),
+        CityAnchor(countryId: "SWE", name: "Stockholm", location: PanoramaLocation(lat: 59.3293, lng: 18.0686)),
+        CityAnchor(countryId: "THA", name: "Bangkok", location: PanoramaLocation(lat: 13.7563, lng: 100.5018)),
+        CityAnchor(countryId: "TUR", name: "Istanbul", location: PanoramaLocation(lat: 41.0082, lng: 28.9784)),
+        CityAnchor(countryId: "TWN", name: "Taipei", location: PanoramaLocation(lat: 25.0330, lng: 121.5654)),
+        CityAnchor(countryId: "URY", name: "Montevideo", location: PanoramaLocation(lat: -34.9011, lng: -56.1645)),
+        CityAnchor(countryId: "USA", name: "New York", location: PanoramaLocation(lat: 40.7128, lng: -74.0060)),
+        CityAnchor(countryId: "USA", name: "Los Angeles", location: PanoramaLocation(lat: 34.0522, lng: -118.2437)),
+        CityAnchor(countryId: "USA", name: "Chicago", location: PanoramaLocation(lat: 41.8781, lng: -87.6298)),
+        CityAnchor(countryId: "USA", name: "San Francisco", location: PanoramaLocation(lat: 37.7749, lng: -122.4194)),
+        CityAnchor(countryId: "USA", name: "Seattle", location: PanoramaLocation(lat: 47.6062, lng: -122.3321)),
+        CityAnchor(countryId: "USA", name: "Miami", location: PanoramaLocation(lat: 25.7617, lng: -80.1918)),
+        CityAnchor(countryId: "USA", name: "New Orleans", location: PanoramaLocation(lat: 29.9511, lng: -90.0715)),
+        CityAnchor(countryId: "VNM", name: "Ho Chi Minh City", location: PanoramaLocation(lat: 10.8231, lng: 106.6297)),
+        CityAnchor(countryId: "VNM", name: "Hanoi", location: PanoramaLocation(lat: 21.0278, lng: 105.8342)),
+        CityAnchor(countryId: "ZAF", name: "Cape Town", location: PanoramaLocation(lat: -33.9249, lng: 18.4241)),
+        CityAnchor(countryId: "ZAF", name: "Johannesburg", location: PanoramaLocation(lat: -26.2041, lng: 28.0473)),
+        CityAnchor(countryId: "ZAF", name: "Durban", location: PanoramaLocation(lat: -29.8587, lng: 31.0218))
     ]
 
     struct GlobalSearchPlan: Equatable {
@@ -242,13 +343,15 @@ public enum SearchSampler {
         selection: SearchSelection,
         recentContinents: [String] = [],
         recentCountries: [String] = [],
-        recentDensityTiers: [SearchDensityTier] = []
+        recentDensityTiers: [SearchDensityTier] = [],
+        recentSceneKinds: [SearchSceneKind] = []
     ) throws -> SearchCandidate {
         try pickCandidate(
             scope: SearchScope(countries: countries, selection: selection),
             recentContinents: recentContinents,
             recentCountries: recentCountries,
-            recentDensityTiers: recentDensityTiers
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds
         )
     }
 
@@ -258,6 +361,7 @@ public enum SearchSampler {
         recentContinents: [String] = [],
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
+        recentSceneKinds: [SearchSceneKind] = [],
         attempts: ClosedRange<Int>
     ) throws -> [SearchCandidate] {
         let scope = try SearchScope(countries: countries, selection: selection)
@@ -268,6 +372,7 @@ public enum SearchSampler {
                 recentContinents: recentContinents,
                 recentCountries: recentCountries,
                 recentDensityTiers: recentDensityTiers,
+                recentSceneKinds: recentSceneKinds,
                 globalPlan: globalPlan,
                 attempt: $0
             )
@@ -290,10 +395,16 @@ public enum SearchSampler {
         recentContinents: [String] = [],
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
+        recentSceneKinds: [SearchSceneKind] = [],
         globalPlan: GlobalSearchPlan? = nil,
         attempt: Int = 1
     ) throws -> SearchCandidate {
-        let densityTier = try pickDensityTier(recentDensityTiers: recentDensityTiers, attempt: attempt)
+        let sceneKind = try pickSceneKind(recentSceneKinds: recentSceneKinds, attempt: attempt)
+        let densityTier = try pickDensityTier(
+            sceneKind: sceneKind,
+            recentDensityTiers: recentDensityTiers,
+            attempt: attempt
+        )
 
         switch scope {
         case .global(let label, let countries):
@@ -307,6 +418,7 @@ public enum SearchSampler {
                 label: label,
                 countries: countries,
                 continent: continent,
+                sceneKind: sceneKind,
                 densityTier: densityTier,
                 recentCountries: recentCountries
             )
@@ -315,12 +427,14 @@ public enum SearchSampler {
                 countrySamplingWeight(
                     $0,
                     availableCountryCount: countries.count,
-                    recentCountries: recentCountries
+                    recentCountries: recentCountries,
+                    sceneKind: sceneKind
                 )
             }
             let areaLabel = selectedCountry == nil ? "\(label) · \(country.name)" : country.name
             return SearchCandidate(
-                requestedLocation: try pickPoint(in: country),
+                requestedLocation: try pickPoint(in: country, sceneKind: sceneKind),
+                sceneKind: sceneKind,
                 densityTier: densityTier,
                 areaLabel: areaLabel,
                 scopeLabel: label,
@@ -367,6 +481,7 @@ public enum SearchSampler {
         label: String,
         countries: [CountryArea],
         continent: String,
+        sceneKind: SearchSceneKind,
         densityTier: SearchDensityTier,
         recentCountries: [String]
     ) throws -> SearchCandidate {
@@ -379,11 +494,13 @@ public enum SearchSampler {
             countrySamplingWeight(
                 $0,
                 availableCountryCount: scopedCountries.count,
-                recentCountries: recentCountries
+                recentCountries: recentCountries,
+                sceneKind: sceneKind
             )
         }
         return SearchCandidate(
-            requestedLocation: try pickPoint(in: country),
+            requestedLocation: try pickPoint(in: country, sceneKind: sceneKind),
+            sceneKind: sceneKind,
             densityTier: densityTier,
             areaLabel: country.name,
             scopeLabel: label,
@@ -392,7 +509,11 @@ public enum SearchSampler {
         )
     }
 
-    private static func pickPoint(in country: CountryArea) throws -> PanoramaLocation {
+    private static func pickPoint(in country: CountryArea, sceneKind: SearchSceneKind) throws -> PanoramaLocation {
+        if let anchorPoint = pickAnchorPoint(in: country, sceneKind: sceneKind) {
+            return anchorPoint
+        }
+
         for _ in 0..<pointSampleAttempts {
             let part = try pickWeighted(country.parts) { $0.weight }
             if let point = pickPoint(in: part) {
@@ -401,6 +522,38 @@ public enum SearchSampler {
         }
 
         throw PanoramaFinderError.samplingFailed(country.name)
+    }
+
+    private static func pickAnchorPoint(in country: CountryArea, sceneKind: SearchSceneKind) -> PanoramaLocation? {
+        guard sceneKind == .city || sceneKind == .town else {
+            return nil
+        }
+        let anchors = cityAnchors.filter { $0.countryId == country.id }
+        guard let anchor = anchors.randomElement() else {
+            return nil
+        }
+
+        let maxDistanceMeters: Double = sceneKind == .city ? 1_200 : 9_000
+        for _ in 0..<pointSampleAttempts {
+            let point = jitter(anchor.location, maxDistanceMeters: maxDistanceMeters)
+            if isPoint(point, in: country) {
+                return point
+            }
+        }
+
+        return isPoint(anchor.location, in: country) ? anchor.location : nil
+    }
+
+    private static func jitter(_ location: PanoramaLocation, maxDistanceMeters: Double) -> PanoramaLocation {
+        let angle = Double.random(in: 0..<(2 * .pi))
+        let distance = sqrt(Double.random(in: 0...1)) * maxDistanceMeters
+        let latMeters = 111_320.0
+        let lngMeters = max(1, latMeters * cos(location.lat * .pi / 180))
+
+        return PanoramaLocation(
+            lat: location.lat + cos(angle) * distance / latMeters,
+            lng: location.lng + sin(angle) * distance / lngMeters
+        )
     }
 
     private static func pickPoint(in part: CountryPart) -> PanoramaLocation? {
@@ -552,20 +705,22 @@ public enum SearchSampler {
     }
 
     private static func pickDensityTier(
+        sceneKind: SearchSceneKind,
         recentDensityTiers: [SearchDensityTier],
         attempt: Int
     ) throws -> SearchDensityTier {
         try pickWeighted(SearchDensityTier.allCases) {
-            densityTierWeight($0, recentDensityTiers: recentDensityTiers, attempt: attempt)
+            densityTierWeight($0, sceneKind: sceneKind, recentDensityTiers: recentDensityTiers, attempt: attempt)
         }
     }
 
     private static func densityTierWeight(
         _ tier: SearchDensityTier,
+        sceneKind: SearchSceneKind,
         recentDensityTiers: [SearchDensityTier],
         attempt: Int
     ) -> Double {
-        let baseWeight = densityTierBaseWeight(tier, attempt: attempt)
+        let baseWeight = densityTierBaseWeight(tier, sceneKind: sceneKind, attempt: attempt)
         let recentCounts = Dictionary(
             grouping: recentDensityTiers.prefix(recentDensityWindow),
             by: { $0 }
@@ -580,37 +735,131 @@ public enum SearchSampler {
         return baseWeight / (1 + overrepresentedCount * recentDensityPenalty)
     }
 
-    private static func densityTierBaseWeight(_ tier: SearchDensityTier, attempt: Int) -> Double {
-        if attempt <= densityFocusedAttempts {
-            switch tier {
-            case .tight:
-                return 0.08
-            case .local:
+    private static func densityTierBaseWeight(
+        _ tier: SearchDensityTier,
+        sceneKind: SearchSceneKind,
+        attempt: Int
+    ) -> Double {
+        let lateAttemptWideBoost = attempt > 8 ? 0.12 : 0
+        switch (sceneKind, tier) {
+        case (.city, .tight):
+            return 0.32
+        case (.city, .local):
+            return 0.56
+        case (.city, .wide):
+            return 0.12 + lateAttemptWideBoost
+        case (.town, .tight):
+            return 0.16
+        case (.town, .local):
+            return 0.58
+        case (.town, .wide):
+            return 0.26 + lateAttemptWideBoost
+        case (.road, .tight):
+            return 0.03
+        case (.road, .local):
+            return 0.17
+        case (.road, .wide):
+            return 0.80
+        case (.remote, .tight):
+            return 0.02
+        case (.remote, .local):
+            return 0.10
+        case (.remote, .wide):
+            return 0.88
+        }
+    }
+
+    private static func pickSceneKind(
+        recentSceneKinds: [SearchSceneKind],
+        attempt: Int
+    ) throws -> SearchSceneKind {
+        try pickWeighted(SearchSceneKind.allCases) {
+            sceneKindWeight($0, recentSceneKinds: recentSceneKinds, attempt: attempt)
+        }
+    }
+
+    private static func sceneKindWeight(
+        _ sceneKind: SearchSceneKind,
+        recentSceneKinds: [SearchSceneKind],
+        attempt: Int
+    ) -> Double {
+        let baseWeight = sceneKindBaseWeight(sceneKind, attempt: attempt)
+        let recentCounts = Dictionary(
+            grouping: recentSceneKinds.prefix(recentSceneWindow),
+            by: { $0 }
+        ).mapValues(\.count)
+        let consideredRecentCount = recentCounts.values.reduce(0, +)
+        guard consideredRecentCount > 0 else {
+            return baseWeight
+        }
+
+        let expectedCount = Double(consideredRecentCount) / Double(SearchSceneKind.allCases.count)
+        let overrepresentedCount = max(0, Double(recentCounts[sceneKind, default: 0]) - expectedCount)
+        return baseWeight / (1 + overrepresentedCount * recentScenePenalty)
+    }
+
+    private static func sceneKindBaseWeight(_ sceneKind: SearchSceneKind, attempt: Int) -> Double {
+        if attempt <= 3 {
+            switch sceneKind {
+            case .city:
+                return 0.42
+            case .town:
+                return 0.26
+            case .road:
                 return 0.22
-            case .wide:
-                return 0.70
+            case .remote:
+                return 0.10
             }
         }
 
-        switch tier {
-        case .tight:
-            return 0.02
-        case .local:
-            return 0.08
-        case .wide:
-            return 0.90
+        if attempt <= 8 {
+            switch sceneKind {
+            case .city:
+                return 0.30
+            case .town:
+                return 0.24
+            case .road:
+                return 0.30
+            case .remote:
+                return 0.16
+            }
+        }
+
+        switch sceneKind {
+        case .city:
+            return 0.18
+        case .town:
+            return 0.18
+        case .road:
+            return 0.44
+        case .remote:
+            return 0.20
         }
     }
 
     private static func countrySamplingWeight(
         _ country: CountryArea,
         availableCountryCount: Int,
-        recentCountries: [String]
+        recentCountries: [String],
+        sceneKind: SearchSceneKind
     ) -> Double {
         // Blend equal-country sampling with softened area and population signals so large countries do not dominate.
-        let areaSignal = pow(max(0.0001, country.weight), 0.25)
+        let areaSignal = pow(max(0.0001, country.weight), 0.18)
         let populationSignal = sqrt(log10(max(10, country.population)))
-        let baseWeight = 1 + areaSignal + populationSignal
+        let densitySignal = sqrt(log10(max(10, country.population / max(0.1, country.weight))))
+        let anchorCount = cityAnchors.filter { $0.countryId == country.id }.count
+        let sceneSignal: Double
+        switch sceneKind {
+        case .city:
+            sceneSignal = anchorCount > 0 ? 1.4 + min(2.2, Double(anchorCount) * 0.28) : 0.20
+        case .town:
+            sceneSignal = anchorCount > 0 ? 1.1 + min(1.4, Double(anchorCount) * 0.18) : 0.45
+        case .road:
+            sceneSignal = 1.0
+        case .remote:
+            sceneSignal = max(0.35, 1.4 - min(1.0, densitySignal * 0.16))
+        }
+        let baseWeight = (1 + areaSignal + populationSignal + densitySignal * 0.35) * sceneSignal
         let recentCounts = Dictionary(
             grouping: recentCountries.prefix(recentCountryWindow),
             by: { $0 }

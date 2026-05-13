@@ -10,10 +10,31 @@ public struct PanoramaLocation: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public enum SearchSceneKind: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case city
+    case town
+    case road
+    case remote
+
+    public var label: String {
+        switch self {
+        case .city:
+            "City"
+        case .town:
+            "Town edge"
+        case .road:
+            "Open road"
+        case .remote:
+            "Remote"
+        }
+    }
+}
+
 public struct Panorama: Codable, Equatable, Hashable, Sendable {
     public var panoId: String
     public var location: PanoramaLocation
     public var requestedLocation: PanoramaLocation
+    public var sceneKind: SearchSceneKind?
     public var heading: Int
     public var pitch: Int
     public var fov: Int
@@ -29,6 +50,7 @@ public struct Panorama: Codable, Equatable, Hashable, Sendable {
         panoId: String,
         location: PanoramaLocation,
         requestedLocation: PanoramaLocation,
+        sceneKind: SearchSceneKind? = nil,
         heading: Int,
         pitch: Int,
         fov: Int,
@@ -43,6 +65,7 @@ public struct Panorama: Codable, Equatable, Hashable, Sendable {
         self.panoId = panoId
         self.location = location
         self.requestedLocation = requestedLocation
+        self.sceneKind = sceneKind
         self.heading = heading
         self.pitch = pitch
         self.fov = fov
@@ -62,6 +85,7 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Hashable, Sendable
     public var panoId: String
     public var location: PanoramaLocation
     public var requestedLocation: PanoramaLocation
+    public var sceneKind: SearchSceneKind?
     public var heading: Int
     public var pitch: Int
     public var fov: Int
@@ -79,6 +103,7 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Hashable, Sendable
         self.panoId = panorama.panoId
         self.location = panorama.location
         self.requestedLocation = panorama.requestedLocation
+        self.sceneKind = panorama.sceneKind
         self.heading = panorama.heading
         self.pitch = panorama.pitch
         self.fov = panorama.fov
@@ -96,6 +121,7 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Hashable, Sendable
             panoId: panoId,
             location: location,
             requestedLocation: requestedLocation,
+            sceneKind: sceneKind,
             heading: heading,
             pitch: pitch,
             fov: fov,

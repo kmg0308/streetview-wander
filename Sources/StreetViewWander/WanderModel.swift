@@ -9,18 +9,18 @@ final class WanderModel: ObservableObject {
     private enum DefaultsKey {
         static let browserAPIKey = "browserAPIKey"
         static let metadataAPIKey = "metadataAPIKey"
+        static let hasBrowserAPIKey = "hasBrowserAPIKey"
+        static let hasMetadataAPIKey = "hasMetadataAPIKey"
         static let selectedContinentId = "selectedContinentId"
         static let selectedCountryId = "selectedCountryId"
         static let metadataRequestLimit = "metadataRequestLimit"
         static let metadataRequestsUsed = "metadataRequestsUsed"
     }
 
-    @Published var browserAPIKey: String {
-        didSet { persistSecret(browserAPIKey, key: DefaultsKey.browserAPIKey) }
-    }
-    @Published var metadataAPIKey: String {
-        didSet { persistSecret(metadataAPIKey, key: DefaultsKey.metadataAPIKey) }
-    }
+    @Published private(set) var browserAPIKey: String
+    @Published private(set) var metadataAPIKey: String
+    @Published private var browserAPIKeyIsStored: Bool
+    @Published private var metadataAPIKeyIsStored: Bool
     @Published var selectedContinentId: String {
         didSet {
             defaults.set(selectedContinentId, forKey: DefaultsKey.selectedContinentId)
@@ -89,24 +89,39 @@ final class WanderModel: ObservableObject {
 
         let legacyBrowserAPIKey = defaults.string(forKey: DefaultsKey.browserAPIKey)
         let legacyMetadataAPIKey = defaults.string(forKey: DefaultsKey.metadataAPIKey)
-        self.browserAPIKey = keychainStore.string(for: DefaultsKey.browserAPIKey) ?? legacyBrowserAPIKey ?? ""
-        self.metadataAPIKey = keychainStore.string(for: DefaultsKey.metadataAPIKey) ?? legacyMetadataAPIKey ?? ""
+        self.browserAPIKey = legacyBrowserAPIKey ?? ""
+        self.metadataAPIKey = legacyMetadataAPIKey ?? ""
+        self.browserAPIKeyIsStored = false
+        self.metadataAPIKeyIsStored = false
         self.selectedContinentId = defaults.string(forKey: DefaultsKey.selectedContinentId) ?? ""
         self.selectedCountryId = defaults.string(forKey: DefaultsKey.selectedCountryId) ?? ""
         self.metadataRequestLimit = max(0, defaults.integer(forKey: DefaultsKey.metadataRequestLimit))
         self.metadataRequestsUsed = max(0, defaults.integer(forKey: DefaultsKey.metadataRequestsUsed))
 
-        persistSecret(browserAPIKey, key: DefaultsKey.browserAPIKey)
-        persistSecret(metadataAPIKey, key: DefaultsKey.metadataAPIKey)
+        let hasStoredBrowserAPIKey = storedSecretFlag(
+            DefaultsKey.hasBrowserAPIKey,
+            fallbackKey: DefaultsKey.browserAPIKey,
+            legacyValue: legacyBrowserAPIKey
+        )
+        let hasStoredMetadataAPIKey = storedSecretFlag(
+            DefaultsKey.hasMetadataAPIKey,
+            fallbackKey: DefaultsKey.metadataAPIKey,
+            legacyValue: legacyMetadataAPIKey
+        )
+        self.browserAPIKeyIsStored = hasStoredBrowserAPIKey || !(legacyBrowserAPIKey ?? "").isEmpty
+        self.metadataAPIKeyIsStored = hasStoredMetadataAPIKey || !(legacyMetadataAPIKey ?? "").isEmpty
+
+        migrateLegacySecret(legacyBrowserAPIKey, key: DefaultsKey.browserAPIKey, hasKeychainValue: hasStoredBrowserAPIKey)
+        migrateLegacySecret(legacyMetadataAPIKey, key: DefaultsKey.metadataAPIKey, hasKeychainValue: hasStoredMetadataAPIKey)
         loadLocalData()
     }
 
     var hasBrowserAPIKey: Bool {
-        !browserAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        browserAPIKeyIsStored || !browserAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var hasMetadataAPIKey: Bool {
-        !metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        metadataAPIKeyIsStored || !metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var metadataRequestsRemaining: Int? {
@@ -150,12 +165,14 @@ final class WanderModel: ObservableObject {
     }
 
     func revisit(_ entry: HistoryEntry) {
+        loadStoredAPIKeysIfNeeded()
         panorama = entry.panorama
         statusText = "Revisited \(entry.areaLabel)."
         activePanel = .none
     }
 
     func randomPlace() {
+        loadStoredAPIKeysIfNeeded()
         guard hasBrowserAPIKey else {
             isSettingsPresented = true
             errorText = "Add VITE_GOOGLE_MAPS_API_KEY in Settings."
@@ -164,6 +181,11 @@ final class WanderModel: ObservableObject {
         guard hasMetadataAPIKey else {
             isSettingsPresented = true
             errorText = "Add GOOGLE_STREET_VIEW_METADATA_API_KEY in Settings."
+            return
+        }
+        if metadataRequestLimit > 0, metadataRequestsUsed >= metadataRequestLimit {
+            errorText = PanoramaFinderError.metadataRequestLimitReached.localizedDescription
+            statusText = errorText ?? "Metadata request limit reached."
             return
         }
         guard !isLoading else {
@@ -181,7 +203,9 @@ final class WanderModel: ObservableObject {
         let recentContinents = recentContinentLabels()
         let recentCountries = recentCountryLabels()
         let recentDensityTiers = recentSearchDensityTiers()
+        let recentSceneKinds = recentSearchSceneKinds()
         let metadataAPIKey = metadataAPIKey
+        let maxMetadataRequests = metadataRequestsRemaining
 
         Task {
             do {
@@ -191,13 +215,16 @@ final class WanderModel: ObservableObject {
                     recentContinents: recentContinents,
                     recentCountries: recentCountries,
                     recentDensityTiers: recentDensityTiers,
+                    recentSceneKinds: recentSceneKinds,
+                    maxMetadataRequests: maxMetadataRequests,
                     onMetadataRequest: { [weak self] in
                         await self?.recordMetadataRequest()
                     }
                 )
                 panorama = next
                 history = try historyStore.append(next)
-                statusText = "\(next.areaLabel) · \(next.attempts) metadata \(next.attempts == 1 ? "check" : "checks")"
+                let scene = next.sceneKind.map { "\($0.label) · " } ?? ""
+                statusText = "\(next.areaLabel) · \(scene)\(next.attempts) metadata \(next.attempts == 1 ? "check" : "checks")"
                 activePanel = .none
             } catch {
                 errorText = error.localizedDescription
@@ -212,8 +239,86 @@ final class WanderModel: ObservableObject {
         metadataRequestsUsed = 0
     }
 
+    func loadAPIKeysForEditing() {
+        loadStoredAPIKeysIfNeeded()
+    }
+
     private func recordMetadataRequest() {
         metadataRequestsUsed += 1
+    }
+
+    private func storedSecretFlag(_ flagKey: String, fallbackKey: String, legacyValue: String?) -> Bool {
+        if defaults.object(forKey: flagKey) != nil {
+            return defaults.bool(forKey: flagKey)
+        }
+
+        if let legacyValue,
+           !legacyValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            defaults.set(true, forKey: flagKey)
+            return true
+        }
+
+        let hasKeychainValue = keychainStore.containsString(for: fallbackKey)
+        defaults.set(hasKeychainValue, forKey: flagKey)
+        return hasKeychainValue
+    }
+
+    func saveAPIKeys(browser: String, metadata: String) {
+        let nextBrowserAPIKey = browser.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextMetadataAPIKey = metadata.trimmingCharacters(in: .whitespacesAndNewlines)
+        var didChange = false
+
+        if browserAPIKey != nextBrowserAPIKey {
+            browserAPIKey = nextBrowserAPIKey
+            persistSecret(nextBrowserAPIKey, key: DefaultsKey.browserAPIKey)
+            browserAPIKeyIsStored = !nextBrowserAPIKey.isEmpty
+            didChange = true
+        }
+
+        if metadataAPIKey != nextMetadataAPIKey {
+            metadataAPIKey = nextMetadataAPIKey
+            persistSecret(nextMetadataAPIKey, key: DefaultsKey.metadataAPIKey)
+            metadataAPIKeyIsStored = !nextMetadataAPIKey.isEmpty
+            didChange = true
+        }
+
+        if didChange {
+            statusText = "Saved API keys."
+            errorText = nil
+        }
+    }
+
+    private func migrateLegacySecret(_ value: String?, key: String, hasKeychainValue: Bool) {
+        guard let value,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+
+        if hasKeychainValue || keychainStore.setString(value, for: key) {
+            defaults.removeObject(forKey: key)
+            defaults.set(true, forKey: storedFlagKey(for: key))
+        }
+    }
+
+    private func loadStoredAPIKeysIfNeeded() {
+        if browserAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           browserAPIKeyIsStored {
+            if let value = keychainStore.string(for: DefaultsKey.browserAPIKey) {
+                browserAPIKey = value
+            } else {
+                browserAPIKeyIsStored = false
+            }
+        }
+
+        if metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           metadataAPIKeyIsStored {
+            if let value = keychainStore.string(for: DefaultsKey.metadataAPIKey) {
+                metadataAPIKey = value
+            } else {
+                metadataAPIKeyIsStored = false
+            }
+        }
     }
 
     private func persistSecret(_ value: String, key: String) {
@@ -221,14 +326,21 @@ final class WanderModel: ObservableObject {
         if trimmed.isEmpty {
             keychainStore.deleteString(for: key)
             defaults.removeObject(forKey: key)
+            defaults.set(false, forKey: storedFlagKey(for: key))
             return
         }
 
         if keychainStore.setString(value, for: key) {
             defaults.removeObject(forKey: key)
+            defaults.set(true, forKey: storedFlagKey(for: key))
         } else {
             defaults.set(value, forKey: key)
+            defaults.set(true, forKey: storedFlagKey(for: key))
         }
+    }
+
+    private func storedFlagKey(for key: String) -> String {
+        key == DefaultsKey.browserAPIKey ? DefaultsKey.hasBrowserAPIKey : DefaultsKey.hasMetadataAPIKey
     }
 
     private func recentContinentLabels() -> [String] {
@@ -248,6 +360,10 @@ final class WanderModel: ObservableObject {
                 panoramaLocation: $0.location
             )
         }
+    }
+
+    private func recentSearchSceneKinds() -> [SearchSceneKind] {
+        history.prefix(80).compactMap(\.sceneKind)
     }
 
     private func legacyContinentLabel(for areaLabel: String) -> String? {
@@ -301,7 +417,8 @@ final class WanderModel: ObservableObject {
         ][areaLabel]
     }
 
-    func importEnvFile() {
+    @discardableResult
+    func importEnvFile() -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -310,27 +427,36 @@ final class WanderModel: ObservableObject {
         panel.prompt = "Import"
 
         guard panel.runModal() == .OK, let url = panel.url else {
-            return
+            return false
         }
 
         do {
             let values = try EnvFile.parseFile(at: url)
-            if let browser = values["VITE_GOOGLE_MAPS_API_KEY"] {
-                browserAPIKey = browser
-            }
-            if let metadata = values["GOOGLE_STREET_VIEW_METADATA_API_KEY"] {
-                metadataAPIKey = metadata
-            }
+            saveAPIKeys(
+                browser: values["VITE_GOOGLE_MAPS_API_KEY"] ?? browserAPIKey,
+                metadata: values["GOOGLE_STREET_VIEW_METADATA_API_KEY"] ?? metadataAPIKey
+            )
             statusText = "Imported API keys from \(url.lastPathComponent)."
             errorText = nil
+            return true
         } catch {
             errorText = error.localizedDescription
+            return false
         }
     }
 }
 
 struct KeychainStore {
     private let service = "com.kangmingyu.streetviewwander"
+
+    func containsString(for account: String) -> Bool {
+        var query = baseQuery(account: account)
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess
+    }
 
     func string(for account: String) -> String? {
         var query = baseQuery(account: account)

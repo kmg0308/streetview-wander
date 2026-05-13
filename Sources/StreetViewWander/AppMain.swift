@@ -49,7 +49,10 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 topBar
                 Spacer()
-                bottomStatus
+                HStack {
+                    bottomStatus
+                    Spacer(minLength: 340)
+                }
             }
             .padding(16)
 
@@ -118,6 +121,8 @@ struct ContentView: View {
                 .help("API key settings")
                 .accessibilityLabel("API key settings")
 
+                metadataUsageBadge
+
                 if let label = updates.updateLabel {
                     Button {
                         updates.updateNow()
@@ -176,18 +181,26 @@ struct ContentView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(model.errorText == nil ? Color.white.opacity(0.86) : Color(red: 1, green: 0.82, blue: 0.76))
                 .layoutPriority(1)
-
-            Spacer(minLength: 8)
-
-            Text(metadataUsageStatus)
-                .lineLimit(1)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.white.opacity(0.72))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: 620, alignment: .leading)
+    }
+
+    private var metadataUsageBadge: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "gauge.with.dots.needle.33percent")
+            Text(metadataUsageBadgeText)
+                .lineLimit(1)
+        }
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(.white.opacity(0.78))
+        .padding(.horizontal, 10)
+        .frame(height: 34)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .help(metadataUsageStatus)
+        .accessibilityLabel(metadataUsageStatus)
     }
 
     private var metadataUsageStatus: String {
@@ -195,6 +208,13 @@ struct ContentView: View {
             return "Metadata checks \(formatCount(model.metadataRequestsUsed))/\(formatCount(model.metadataRequestLimit)) · \(formatCount(remaining)) left"
         }
         return "Metadata checks \(formatCount(model.metadataRequestsUsed)) · no limit"
+    }
+
+    private var metadataUsageBadgeText: String {
+        if model.metadataRequestLimit > 0 {
+            return "Checks \(formatCount(model.metadataRequestsUsed))/\(formatCount(model.metadataRequestLimit))"
+        }
+        return "Checks \(formatCount(model.metadataRequestsUsed))"
     }
 
     private var sidePanel: some View {
@@ -277,6 +297,9 @@ struct DetailsPanel: View {
                 }
                 if let continent = panorama.continentLabel {
                     detail("Continent", continent)
+                }
+                if let sceneKind = panorama.sceneKind {
+                    detail("Search mix", sceneKind.label)
                 }
                 detail("Latitude", formatCoord(panorama.location.lat))
                 detail("Longitude", formatCoord(panorama.location.lng))
@@ -361,6 +384,8 @@ struct HistoryPanel: View {
 struct SettingsView: View {
     @EnvironmentObject private var model: WanderModel
     @Environment(\.dismiss) private var dismiss
+    @State private var draftBrowserAPIKey = ""
+    @State private var draftMetadataAPIKey = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -385,7 +410,7 @@ struct SettingsView: View {
                 Text("VITE_GOOGLE_MAPS_API_KEY")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                SecureField("Maps JavaScript API key", text: $model.browserAPIKey)
+                SecureField("Maps JavaScript API key", text: $draftBrowserAPIKey)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -393,7 +418,7 @@ struct SettingsView: View {
                 Text("GOOGLE_STREET_VIEW_METADATA_API_KEY")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
-                SecureField("Street View metadata API key", text: $model.metadataAPIKey)
+                SecureField("Street View metadata API key", text: $draftMetadataAPIKey)
                     .textFieldStyle(.roundedBorder)
             }
 
@@ -425,10 +450,13 @@ struct SettingsView: View {
 
             HStack {
                 Button("Import .env") {
-                    model.importEnvFile()
+                    if model.importEnvFile() {
+                        resetDraftKeys()
+                    }
                 }
                 Spacer()
                 Button("Done") {
+                    model.saveAPIKeys(browser: draftBrowserAPIKey, metadata: draftMetadataAPIKey)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -436,6 +464,13 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(width: 520)
+        .onAppear(perform: resetDraftKeys)
+    }
+
+    private func resetDraftKeys() {
+        model.loadAPIKeysForEditing()
+        draftBrowserAPIKey = model.browserAPIKey
+        draftMetadataAPIKey = model.metadataAPIKey
     }
 
     private func requestMetric(_ label: String, _ value: String) -> some View {
