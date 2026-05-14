@@ -1,14 +1,71 @@
 {
-  "eventCount": 0,
-  "eventsByKind": {},
-  "feedbackByKind": {},
-  "feedbackCount": 0,
-  "generatedAt": "2026-05-14T16:40:39.425510Z",
-  "metadataByStatus": {},
-  "metadataCount": 0,
+  "eventCount": 653,
+  "eventsByKind": {
+    "candidateAttempted": 301,
+    "configLoaded": 1,
+    "feedbackGiven": 11,
+    "metadataResult": 301,
+    "visitRecorded": 39
+  },
+  "feedbackByKind": {
+    "liked": 6,
+    "tooManyRoads": 1,
+    "tooSimilar": 4
+  },
+  "feedbackCount": 11,
+  "generatedAt": "2026-05-14T16:59:39.227992Z",
+  "metadataByStatus": {
+    "OK": 39,
+    "ZERO_RESULTS": 262
+  },
+  "metadataCount": 301,
   "schemaVersion": 1,
-  "visitCount": 0,
-  "visitsByContinent": {},
-  "visitsByCountry": {},
-  "visitsBySceneKind": {}
+  "visitAttempts": {
+    "average": 7.718,
+    "max": 31
+  },
+  "visitCount": 39,
+  "visitsByContinent": {
+    "Africa": 7,
+    "Asia": 7,
+    "Europe": 7,
+    "North America": 9,
+    "Oceania": 4,
+    "South America": 5
+  },
+  "visitsByCountry": {
+    "Australia": 3,
+    "Austria": 1,
+    "Brazil": 1,
+    "Canada": 2,
+    "Dominican Republic": 1,
+    "Equatorial Guinea": 1,
+    "Finland": 2,
+    "Germany": 1,
+    "Ghana": 1,
+    "Guatemala": 1,
+    "Hungary": 1,
+    "India": 2,
+    "Israel": 1,
+    "Jamaica": 1,
+    "Japan": 1,
+    "Kenya": 1,
+    "Latvia": 1,
+    "Malaysia": 2,
+    "Mexico": 3,
+    "New Zealand": 1,
+    "Paraguay": 1,
+    "Peru": 3,
+    "South Africa": 3,
+    "Sweden": 1,
+    "Thailand": 1,
+    "Tunisia": 1,
+    "United States of America": 1
+  },
+  "visitsBySceneKind": {
+    "city": 16,
+    "remote": 5,
+    "road": 8,
+    "town": 10
+  }
 }
