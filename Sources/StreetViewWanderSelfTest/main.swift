@@ -16,6 +16,64 @@ guard !options.continents.isEmpty, !options.countries.isEmpty else {
     ])
 }
 
+func candidateForSample(
+    countries: [CountryArea],
+    selection: SearchSelection,
+    diversityContext: SamplingDiversityContext,
+    sample: Int
+) throws -> SearchCandidate {
+    let attempt = ((sample - 1) % SearchSampler.maxAttempts) + 1
+    return try SearchSampler.pickCandidates(
+        countries: countries,
+        selection: selection,
+        diversityContext: diversityContext,
+        attempts: attempt...attempt
+    )[0]
+}
+
+func sceneShare(
+    _ sceneKind: SearchSceneKind,
+    countries: [CountryArea],
+    diversityContext: SamplingDiversityContext = .empty,
+    samples: Int = 3_000
+) throws -> Double {
+    var count = 0
+    for sample in 1...samples {
+        let candidate = try candidateForSample(
+            countries: countries,
+            selection: SearchSelection(),
+            diversityContext: diversityContext,
+            sample: sample
+        )
+        if candidate.sceneKind == sceneKind {
+            count += 1
+        }
+    }
+    return Double(count) / Double(samples)
+}
+
+func countryShare(
+    _ countryName: String,
+    countries: [CountryArea],
+    selection: SearchSelection,
+    diversityContext: SamplingDiversityContext = .empty,
+    samples: Int = 3_000
+) throws -> Double {
+    var count = 0
+    for sample in 1...samples {
+        let candidate = try candidateForSample(
+            countries: countries,
+            selection: selection,
+            diversityContext: diversityContext,
+            sample: sample
+        )
+        if candidate.countryLabel == countryName {
+            count += 1
+        }
+    }
+    return Double(count) / Double(samples)
+}
+
 let globalCandidate = try SearchSampler.pickCandidate(
     countries: countries,
     selection: SearchSelection()
@@ -136,6 +194,103 @@ for sceneKind in SearchSceneKind.allCases {
             NSLocalizedDescriptionKey: "Search scene \(sceneKind.rawValue) is too rare: \(share)."
         ])
     }
+}
+
+let defaultCityShare = try sceneShare(.city, countries: countries)
+guard defaultCityShare > 0.28, defaultCityShare < 0.42 else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 20, userInfo: [
+        NSLocalizedDescriptionKey: "Default city share should stay near the 30-40% target: \(defaultCityShare)."
+    ])
+}
+
+let baselineRoadShare = try sceneShare(.road, countries: countries)
+let roadHeavyContext = SamplingDiversityContext(
+    recentSceneKinds: Array(repeating: SearchSceneKind.road, count: 10)
+)
+let correctedRoadShare = try sceneShare(.road, countries: countries, diversityContext: roadHeavyContext)
+guard correctedRoadShare < baselineRoadShare * 0.70 else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 21, userInfo: [
+        NSLocalizedDescriptionKey: "Recent road repetition was not reduced enough: \(baselineRoadShare) -> \(correctedRoadShare)."
+    ])
+}
+guard correctedRoadShare > 0.015 else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 22, userInfo: [
+        NSLocalizedDescriptionKey: "Recent road repetition created a near hard ban: \(correctedRoadShare)."
+    ])
+}
+
+let nonCityClusterContext = SamplingDiversityContext(
+    recentSceneKinds: [.town, .road, .remote, .road, .town, .remote, .road, .town, .remote, .road]
+)
+let nonCityCorrectedCityShare = try sceneShare(.city, countries: countries, diversityContext: nonCityClusterContext)
+guard nonCityCorrectedCityShare > defaultCityShare else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 23, userInfo: [
+        NSLocalizedDescriptionKey: "Non-city cluster did not boost city variety: \(defaultCityShare) -> \(nonCityCorrectedCityShare)."
+    ])
+}
+
+if let unitedStates = countries.first(where: { $0.id == "USA" }) {
+    let northAmericaSelection = SearchSelection(continentId: unitedStates.continent)
+    let baselineUSAShare = try countryShare(
+        unitedStates.name,
+        countries: countries,
+        selection: northAmericaSelection
+    )
+    let repeatedUSAContext = SamplingDiversityContext(
+        recentCountries: Array(repeating: unitedStates.name, count: 3)
+    )
+    let correctedUSAShare = try countryShare(
+        unitedStates.name,
+        countries: countries,
+        selection: northAmericaSelection,
+        diversityContext: repeatedUSAContext
+    )
+    guard correctedUSAShare < baselineUSAShare * 0.80 else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 24, userInfo: [
+            NSLocalizedDescriptionKey: "Recent country repeat threshold did not reduce USA enough: \(baselineUSAShare) -> \(correctedUSAShare)."
+        ])
+    }
+    guard correctedUSAShare > 0.01 else {
+        throw NSError(domain: "StreetViewWanderSelfTest", code: 25, userInfo: [
+            NSLocalizedDescriptionKey: "Recent country repeat created a near hard ban: \(correctedUSAShare)."
+        ])
+    }
+}
+
+let roadFeedback = (0..<6).map { _ in
+    PlaceFeedbackEntry(kind: .tooManyRoads, panorama: nil)
+}
+let roadFeedbackContext = SamplingDiversityContext(
+    feedback: FeedbackSummary(recent: roadFeedback, all: roadFeedback)
+)
+let roadFeedbackShare = try sceneShare(.road, countries: countries, diversityContext: roadFeedbackContext)
+guard roadFeedbackShare < baselineRoadShare else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 26, userInfo: [
+        NSLocalizedDescriptionKey: "Road feedback did not reduce road share: \(baselineRoadShare) -> \(roadFeedbackShare)."
+    ])
+}
+
+let moreCityFeedback = (0..<6).map { _ in
+    PlaceFeedbackEntry(kind: .moreCity, panorama: nil)
+}
+let moreCityContext = SamplingDiversityContext(
+    feedback: FeedbackSummary(recent: moreCityFeedback, all: moreCityFeedback)
+)
+let feedbackCityShare = try sceneShare(.city, countries: countries, diversityContext: moreCityContext)
+guard feedbackCityShare > defaultCityShare else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 27, userInfo: [
+        NSLocalizedDescriptionKey: "More-city feedback did not increase city share: \(defaultCityShare) -> \(feedbackCityShare)."
+    ])
+}
+
+let cityConfigContext = SamplingDiversityContext(
+    config: SamplerConfig(sceneMultipliers: ["city": 1.8])
+)
+let configCityShare = try sceneShare(.city, countries: countries, diversityContext: cityConfigContext)
+guard configCityShare > defaultCityShare else {
+    throw NSError(domain: "StreetViewWanderSelfTest", code: 28, userInfo: [
+        NSLocalizedDescriptionKey: "Sampler config scene multiplier did not affect city share: \(defaultCityShare) -> \(configCityShare)."
+    ])
 }
 
 guard SearchDensityTier.classify(

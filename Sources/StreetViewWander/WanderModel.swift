@@ -50,6 +50,8 @@ final class WanderModel: ObservableObject {
 
     @Published private(set) var panorama: Panorama?
     @Published private(set) var history: [HistoryEntry] = []
+    @Published private(set) var feedback: [PlaceFeedbackEntry] = []
+    @Published private(set) var samplerConfig = SamplerConfig.default
     @Published private(set) var locationOptions = LocationOptions.empty
     @Published private(set) var isLoading = false
     @Published private(set) var statusText = "Add API keys in Settings, then pick a random place."
@@ -73,18 +75,27 @@ final class WanderModel: ObservableObject {
     private let keychainStore: KeychainStore
     private let countryDataStore: CountryDataStore
     private let historyStore: HistoryStore
+    private let feedbackStore: FeedbackStore
+    private let telemetryStore: TelemetryStore
+    private let samplerConfigStore: SamplerConfigStore
     private let panoramaFinder: PanoramaFinder
 
     init(
         defaults: UserDefaults = .standard,
         keychainStore: KeychainStore = KeychainStore(),
         countryDataStore: CountryDataStore = CountryDataStore(),
-        historyStore: HistoryStore = HistoryStore()
+        historyStore: HistoryStore = HistoryStore(),
+        feedbackStore: FeedbackStore = FeedbackStore(),
+        telemetryStore: TelemetryStore = TelemetryStore(),
+        samplerConfigStore: SamplerConfigStore = SamplerConfigStore()
     ) {
         self.defaults = defaults
         self.keychainStore = keychainStore
         self.countryDataStore = countryDataStore
         self.historyStore = historyStore
+        self.feedbackStore = feedbackStore
+        self.telemetryStore = telemetryStore
+        self.samplerConfigStore = samplerConfigStore
         self.panoramaFinder = PanoramaFinder(countryDataStore: countryDataStore)
 
         let legacyBrowserAPIKey = defaults.string(forKey: DefaultsKey.browserAPIKey)
@@ -148,14 +159,50 @@ final class WanderModel: ObservableObject {
         return locationOptions.countries.filter { $0.continent == selectedContinentId }
     }
 
+    var selectionReasonSummary: String? {
+        panorama?.selectionReasonSummary
+    }
+
+    var selectionReasonDetails: [String] {
+        panorama?.selectionReasonDetails ?? []
+    }
+
+    var samplerConfigSourceLabel: String {
+        samplerConfig.source ?? "Built-in defaults"
+    }
+
+    var feedbackCount: Int {
+        feedback.count
+    }
+
     func loadLocalData() {
         do {
             locationOptions = try countryDataStore.locationOptions()
             history = try historyStore.load()
+            feedback = try feedbackStore.load()
+            samplerConfig = samplerConfigStore.loadAvailableConfig()
             errorText = nil
         } catch {
             errorText = error.localizedDescription
             statusText = error.localizedDescription
+        }
+    }
+
+    func refreshSamplerConfig() async {
+        do {
+            let config = try await samplerConfigStore.refreshRemoteConfig()
+            samplerConfig = config
+            recordTelemetry(SearchTelemetryEvent(
+                kind: .configLoaded,
+                status: "OK",
+                configSource: config.source
+            ))
+        } catch {
+            recordTelemetry(SearchTelemetryEvent(
+                kind: .configLoadFailed,
+                status: "FAILED",
+                configSource: SamplerConfigStore.defaultRemoteURL.absoluteString
+            ))
         }
     }
 
@@ -204,6 +251,12 @@ final class WanderModel: ObservableObject {
         let recentCountries = recentCountryLabels()
         let recentDensityTiers = recentSearchDensityTiers()
         let recentSceneKinds = recentSearchSceneKinds()
+        let diversityContext = samplingDiversityContext(
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds
+        )
         let metadataAPIKey = metadataAPIKey
         let maxMetadataRequests = metadataRequestsRemaining
 
@@ -216,13 +269,34 @@ final class WanderModel: ObservableObject {
                     recentCountries: recentCountries,
                     recentDensityTiers: recentDensityTiers,
                     recentSceneKinds: recentSceneKinds,
+                    diversityContext: diversityContext,
                     maxMetadataRequests: maxMetadataRequests,
                     onMetadataRequest: { [weak self] in
                         await self?.recordMetadataRequest()
+                    },
+                    onSearchEvent: { [weak self] event in
+                        await self?.recordTelemetry(event)
                     }
                 )
                 panorama = next
                 history = try historyStore.append(next)
+                recordTelemetry(SearchTelemetryEvent(
+                    kind: .visitRecorded,
+                    requestedLocation: next.requestedLocation,
+                    location: next.location,
+                    sceneKind: next.sceneKind,
+                    densityTier: SearchDensityTier.classify(
+                        requestedLocation: next.requestedLocation,
+                        panoramaLocation: next.location
+                    ),
+                    areaLabel: next.areaLabel,
+                    countryLabel: next.countryLabel,
+                    continentLabel: next.continentLabel,
+                    status: "OK",
+                    attempts: next.attempts,
+                    reasonSummary: next.selectionReasonSummary,
+                    reasonDetails: next.selectionReasonDetails
+                ))
                 let scene = next.sceneKind.map { "\($0.label) · " } ?? ""
                 statusText = "\(next.areaLabel) · \(scene)\(next.attempts) metadata \(next.attempts == 1 ? "check" : "checks")"
                 activePanel = .none
@@ -243,8 +317,63 @@ final class WanderModel: ObservableObject {
         loadStoredAPIKeysIfNeeded()
     }
 
+    func recordFeedback(_ kind: PlaceFeedbackKind) {
+        guard let panorama else {
+            return
+        }
+
+        let entry = PlaceFeedbackEntry(kind: kind, panorama: panorama)
+        do {
+            feedback = try feedbackStore.append(entry)
+            recordTelemetry(SearchTelemetryEvent(
+                kind: .feedbackGiven,
+                location: panorama.location,
+                sceneKind: panorama.sceneKind,
+                densityTier: SearchDensityTier.classify(
+                    requestedLocation: panorama.requestedLocation,
+                    panoramaLocation: panorama.location
+                ),
+                areaLabel: panorama.areaLabel,
+                countryLabel: panorama.countryLabel,
+                continentLabel: panorama.continentLabel,
+                status: "OK",
+                feedbackKind: kind,
+                reasonSummary: panorama.selectionReasonSummary,
+                reasonDetails: panorama.selectionReasonDetails
+            ))
+            statusText = "Recorded feedback: \(kind.label)."
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+            statusText = error.localizedDescription
+        }
+    }
+
+    func hasFeedback(_ kind: PlaceFeedbackKind) -> Bool {
+        guard let panoId = panorama?.panoId else {
+            return false
+        }
+        return feedback.contains { $0.panoId == panoId && $0.kind == kind }
+    }
+
+    func resetFeedback() {
+        do {
+            try feedbackStore.clear()
+            feedback = []
+            statusText = "Reset feedback."
+            errorText = nil
+        } catch {
+            errorText = error.localizedDescription
+            statusText = error.localizedDescription
+        }
+    }
+
     private func recordMetadataRequest() {
         metadataRequestsUsed += 1
+    }
+
+    private func recordTelemetry(_ event: SearchTelemetryEvent) {
+        try? telemetryStore.append(event)
     }
 
     private func storedSecretFlag(_ flagKey: String, fallbackKey: String, legacyValue: String?) -> Bool {
@@ -364,6 +493,27 @@ final class WanderModel: ObservableObject {
 
     private func recentSearchSceneKinds() -> [SearchSceneKind] {
         history.prefix(80).compactMap(\.sceneKind)
+    }
+
+    private func samplingDiversityContext(
+        recentContinents: [String],
+        recentCountries: [String],
+        recentDensityTiers: [SearchDensityTier],
+        recentSceneKinds: [SearchSceneKind]
+    ) -> SamplingDiversityContext {
+        SamplingDiversityContext(
+            recentHistory: Array(history.prefix(100)),
+            allHistory: history,
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds,
+            feedback: FeedbackSummary(
+                recent: Array(feedback.prefix(100)),
+                all: feedback
+            ),
+            config: samplerConfig
+        )
     }
 
     private func legacyContinentLabel(for areaLabel: String) -> String? {

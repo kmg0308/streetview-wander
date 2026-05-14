@@ -15,6 +15,7 @@ struct StreetViewWanderApp: App {
                 .frame(minWidth: 980, minHeight: 680)
                 .task {
                     updates.startAutoChecks()
+                    await model.refreshSamplerConfig()
                 }
         }
         .commands {
@@ -168,24 +169,56 @@ struct ContentView: View {
     }
 
     private var bottomStatus: some View {
-        HStack(spacing: 12) {
-            if !model.hasBrowserAPIKey || !model.hasMetadataAPIKey {
-                Button("Add API Keys") {
-                    model.isSettingsPresented = true
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                if !model.hasBrowserAPIKey || !model.hasMetadataAPIKey {
+                    Button("Add API Keys") {
+                        model.isSettingsPresented = true
+                    }
+                    .buttonStyle(PrimaryOverlayButtonStyle())
                 }
-                .buttonStyle(PrimaryOverlayButtonStyle())
+
+                Text(model.errorText ?? model.statusText)
+                    .lineLimit(2)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(model.errorText == nil ? Color.white.opacity(0.86) : Color(red: 1, green: 0.82, blue: 0.76))
+                    .layoutPriority(1)
             }
 
-            Text(model.errorText ?? model.statusText)
-                .lineLimit(2)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(model.errorText == nil ? Color.white.opacity(0.86) : Color(red: 1, green: 0.82, blue: 0.76))
-                .layoutPriority(1)
+            if let reason = model.selectionReasonSummary, model.errorText == nil {
+                Text(reason)
+                    .lineLimit(2)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.70))
+            }
+
+            if model.panorama != nil, !model.isLoading {
+                feedbackBar
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
         .frame(maxWidth: 620, alignment: .leading)
+    }
+
+    private var feedbackBar: some View {
+        HStack(spacing: 6) {
+            feedbackButton(.liked, icon: "hand.thumbsup")
+            feedbackButton(.tooSimilar, icon: "square.on.square")
+            feedbackButton(.tooManyRoads, icon: "road.lanes")
+            feedbackButton(.moreCity, icon: "building.2")
+        }
+    }
+
+    private func feedbackButton(_ kind: PlaceFeedbackKind, icon: String) -> some View {
+        Button {
+            model.recordFeedback(kind)
+        } label: {
+            Label(kind.label, systemImage: icon)
+        }
+        .buttonStyle(OverlayButtonStyle(isActive: model.hasFeedback(kind)))
+        .help(kind.label)
     }
 
     private var metadataUsageBadge: some View {
@@ -286,36 +319,66 @@ struct DetailsPanel: View {
     @EnvironmentObject private var model: WanderModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            panelHeader("Current Start Point")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                panelHeader("Current Start Point")
 
-            if let panorama = model.panorama {
-                detail("Scope", panorama.scopeLabel)
-                detail("Area", panorama.areaLabel)
-                if let country = panorama.countryLabel {
-                    detail("Country", country)
-                }
-                if let continent = panorama.continentLabel {
-                    detail("Continent", continent)
-                }
-                if let sceneKind = panorama.sceneKind {
-                    detail("Search mix", sceneKind.label)
-                }
-                detail("Latitude", formatCoord(panorama.location.lat))
-                detail("Longitude", formatCoord(panorama.location.lng))
-                detail("Metadata checks", "\(panorama.attempts)")
-                detail("Image date", panorama.date ?? "Unknown")
+                if let panorama = model.panorama {
+                    detail("Scope", panorama.scopeLabel)
+                    detail("Area", panorama.areaLabel)
+                    if let country = panorama.countryLabel {
+                        detail("Country", country)
+                    }
+                    if let continent = panorama.continentLabel {
+                        detail("Continent", continent)
+                    }
+                    if let sceneKind = panorama.sceneKind {
+                        detail("Search mix", sceneKind.label)
+                    }
+                    detail("Latitude", formatCoord(panorama.location.lat))
+                    detail("Longitude", formatCoord(panorama.location.lng))
+                    detail("Requested", "\(formatCoord(panorama.requestedLocation.lat)), \(formatCoord(panorama.requestedLocation.lng))")
+                    detail(
+                        "Request distance",
+                        formatDistance(
+                            SearchDensityTier.distanceMeters(
+                                from: panorama.requestedLocation,
+                                to: panorama.location
+                            )
+                        )
+                    )
+                    detail("Metadata checks", "\(panorama.attempts)")
+                    detail("Image date", panorama.date ?? "Unknown")
+                    detail("Sampler config", model.samplerConfigSourceLabel)
 
-                Button("Open in Google Maps") {
-                    NSWorkspace.shared.open(mapsURL(for: panorama))
+                    if let reason = panorama.selectionReasonSummary {
+                        detail("Selection reason", reason)
+                    }
+                    if !model.selectionReasonDetails.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Reason details")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            ForEach(Array(model.selectionReasonDetails.enumerated()), id: \.offset) { _, item in
+                                Text(item)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.78))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    Button("Open in Google Maps") {
+                        NSWorkspace.shared.open(mapsURL(for: panorama))
+                    }
+                    .padding(.top, 4)
+                } else {
+                    Text("Pick a random place to begin.")
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 4)
-            } else {
-                Text("Pick a random place to begin.")
-                    .foregroundStyle(.secondary)
+
+                Spacer()
             }
-
-            Spacer()
         }
         .panelText()
     }
@@ -448,6 +511,22 @@ struct SettingsView: View {
                 }
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Feedback")
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack(spacing: 10) {
+                    requestMetric("Signals", formatCount(model.feedbackCount))
+                    requestMetric("Config", model.samplerConfigSourceLabel)
+                    Spacer()
+                    Button("Reset Feedback") {
+                        model.resetFeedback()
+                    }
+                }
+            }
+
             HStack {
                 Button("Import .env") {
                     if model.importEnvFile() {
@@ -510,6 +589,13 @@ private func formatCoord(_ value: Double) -> String {
 
 private func formatCount(_ value: Int) -> String {
     NumberFormatter.localizedString(from: NSNumber(value: value), number: .decimal)
+}
+
+private func formatDistance(_ meters: Double) -> String {
+    if meters >= 1_000 {
+        return String(format: "%.1f km", meters / 1_000)
+    }
+    return String(format: "%.0f m", meters)
 }
 
 private func mapsURL(for panorama: Panorama) -> URL {

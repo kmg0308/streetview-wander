@@ -1,0 +1,16 @@
+{
+  "continentMultipliers": {},
+  "countryMultipliers": {},
+  "feedbackInfluence": 0.25,
+  "longTermExplorationBoost": 0.35,
+  "minimumWeightMultiplier": 0.08,
+  "nonCityClusterPenalty": 1.65,
+  "recentContinentPenalty": 0.55,
+  "recentCountryPenalty": 1.15,
+  "recentDensityPenalty": 0.85,
+  "recentScenePenalty": 1.25,
+  "sceneMultipliers": {},
+  "schemaVersion": 1,
+  "source": "telemetry aggregate generated 2026-05-14T16:34:57.409091Z",
+  "targetCityShare": 0.35
+}

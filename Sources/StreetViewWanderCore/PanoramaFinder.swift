@@ -37,6 +37,8 @@ public struct SearchCandidate: Equatable {
     public var scopeLabel: String
     public var continentLabel: String?
     public var countryLabel: String?
+    public var selectionReasonSummary: String?
+    public var selectionReasonDetails: [String]?
 
     public var searchRadius: Int {
         densityTier.searchRadius
@@ -108,8 +110,10 @@ public actor PanoramaFinder {
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
         recentSceneKinds: [SearchSceneKind] = [],
+        diversityContext: SamplingDiversityContext = .empty,
         maxMetadataRequests: Int? = nil,
-        onMetadataRequest: (@Sendable () async -> Void)? = nil
+        onMetadataRequest: (@Sendable () async -> Void)? = nil,
+        onSearchEvent: (@Sendable (SearchTelemetryEvent) async -> Void)? = nil
     ) async throws -> Panorama {
         let apiKey = metadataAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty else {
@@ -121,27 +125,74 @@ public actor PanoramaFinder {
 
         let countries = try countryDataStore.loadCountries()
         let scope = try SearchScope(countries: countries, selection: selection)
-        let globalPlan = try SearchSampler.globalSearchPlan(scope: scope, recentContinents: recentContinents)
+        let context = diversityContext.withLegacySignals(
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds
+        )
+        let globalPlan = try SearchSampler.globalSearchPlan(scope: scope, diversityContext: context)
         var lastStatus = "NO_ATTEMPTS"
         let attemptLimit = min(SearchSampler.maxAttempts, maxMetadataRequests ?? SearchSampler.maxAttempts)
 
         for attempt in 1...attemptLimit {
             let candidate = try SearchSampler.pickCandidate(
                 scope: scope,
-                recentContinents: recentContinents,
-                recentCountries: recentCountries,
-                recentDensityTiers: recentDensityTiers,
-                recentSceneKinds: recentSceneKinds,
+                diversityContext: context,
                 globalPlan: globalPlan,
                 attempt: attempt
             )
-            let metadata = try await metadata(
-                apiKey: apiKey,
-                location: candidate.requestedLocation,
-                radius: candidate.searchRadius,
-                onRequest: onMetadataRequest
-            )
+            await onSearchEvent?(SearchTelemetryEvent(
+                kind: .candidateAttempted,
+                requestedLocation: candidate.requestedLocation,
+                sceneKind: candidate.sceneKind,
+                densityTier: candidate.densityTier,
+                areaLabel: candidate.areaLabel,
+                countryLabel: candidate.countryLabel,
+                continentLabel: candidate.continentLabel,
+                attempts: attempt,
+                reasonSummary: candidate.selectionReasonSummary,
+                reasonDetails: candidate.selectionReasonDetails
+            ))
+            let metadata: PanoramaMetadata
+            do {
+                metadata = try await self.metadata(
+                    apiKey: apiKey,
+                    location: candidate.requestedLocation,
+                    radius: candidate.searchRadius,
+                    onRequest: onMetadataRequest
+                )
+            } catch {
+                await onSearchEvent?(SearchTelemetryEvent(
+                    kind: .metadataResult,
+                    requestedLocation: candidate.requestedLocation,
+                    sceneKind: candidate.sceneKind,
+                    densityTier: candidate.densityTier,
+                    areaLabel: candidate.areaLabel,
+                    countryLabel: candidate.countryLabel,
+                    continentLabel: candidate.continentLabel,
+                    status: "REQUEST_FAILED",
+                    attempts: attempt,
+                    reasonSummary: candidate.selectionReasonSummary,
+                    reasonDetails: candidate.selectionReasonDetails
+                ))
+                throw error
+            }
             lastStatus = metadata.errorMessage ?? metadata.status
+            await onSearchEvent?(SearchTelemetryEvent(
+                kind: .metadataResult,
+                requestedLocation: candidate.requestedLocation,
+                location: metadata.location,
+                sceneKind: candidate.sceneKind,
+                densityTier: candidate.densityTier,
+                areaLabel: candidate.areaLabel,
+                countryLabel: candidate.countryLabel,
+                continentLabel: candidate.continentLabel,
+                status: metadata.status,
+                attempts: attempt,
+                reasonSummary: candidate.selectionReasonSummary,
+                reasonDetails: candidate.selectionReasonDetails
+            ))
 
             if metadata.status == "OK",
                let location = metadata.location,
@@ -166,7 +217,9 @@ public actor PanoramaFinder {
                     scopeLabel: resolvedCandidate.scopeLabel,
                     continentLabel: resolvedCandidate.continentLabel,
                     countryLabel: resolvedCandidate.countryLabel,
-                    attempts: attempt
+                    attempts: attempt,
+                    selectionReasonSummary: resolvedCandidate.selectionReasonSummary,
+                    selectionReasonDetails: resolvedCandidate.selectionReasonDetails
                 )
             }
         }
@@ -344,14 +397,18 @@ public enum SearchSampler {
         recentContinents: [String] = [],
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
-        recentSceneKinds: [SearchSceneKind] = []
+        recentSceneKinds: [SearchSceneKind] = [],
+        diversityContext: SamplingDiversityContext = .empty
     ) throws -> SearchCandidate {
-        try pickCandidate(
-            scope: SearchScope(countries: countries, selection: selection),
+        let context = diversityContext.withLegacySignals(
             recentContinents: recentContinents,
             recentCountries: recentCountries,
             recentDensityTiers: recentDensityTiers,
             recentSceneKinds: recentSceneKinds
+        )
+        return try pickCandidate(
+            scope: SearchScope(countries: countries, selection: selection),
+            diversityContext: context
         )
     }
 
@@ -362,31 +419,45 @@ public enum SearchSampler {
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
         recentSceneKinds: [SearchSceneKind] = [],
+        diversityContext: SamplingDiversityContext = .empty,
         attempts: ClosedRange<Int>
     ) throws -> [SearchCandidate] {
         let scope = try SearchScope(countries: countries, selection: selection)
-        let globalPlan = try globalSearchPlan(scope: scope, recentContinents: recentContinents)
+        let context = diversityContext.withLegacySignals(
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds
+        )
+        let globalPlan = try globalSearchPlan(scope: scope, diversityContext: context)
         return try attempts.map {
             try pickCandidate(
                 scope: scope,
-                recentContinents: recentContinents,
-                recentCountries: recentCountries,
-                recentDensityTiers: recentDensityTiers,
-                recentSceneKinds: recentSceneKinds,
+                diversityContext: context,
                 globalPlan: globalPlan,
                 attempt: $0
             )
         }
     }
 
-    static func globalSearchPlan(scope: SearchScope, recentContinents: [String]) throws -> GlobalSearchPlan? {
+    static func globalSearchPlan(
+        scope: SearchScope,
+        recentContinents: [String] = [],
+        diversityContext: SamplingDiversityContext = .empty
+    ) throws -> GlobalSearchPlan? {
         guard case .global(_, let countries) = scope else {
             return nil
         }
+        let context = diversityContext.withLegacySignals(
+            recentContinents: recentContinents,
+            recentCountries: [],
+            recentDensityTiers: [],
+            recentSceneKinds: []
+        )
         let countriesByContinent = Dictionary(grouping: countries, by: \.continent)
         return GlobalSearchPlan(continents: try weightedContinentOrder(
             countriesByContinent: countriesByContinent,
-            recentContinents: recentContinents
+            diversityContext: context
         ))
     }
 
@@ -396,51 +467,75 @@ public enum SearchSampler {
         recentCountries: [String] = [],
         recentDensityTiers: [SearchDensityTier] = [],
         recentSceneKinds: [SearchSceneKind] = [],
+        diversityContext: SamplingDiversityContext = .empty,
         globalPlan: GlobalSearchPlan? = nil,
         attempt: Int = 1
     ) throws -> SearchCandidate {
-        let sceneKind = try pickSceneKind(recentSceneKinds: recentSceneKinds, attempt: attempt)
+        let context = diversityContext.withLegacySignals(
+            recentContinents: recentContinents,
+            recentCountries: recentCountries,
+            recentDensityTiers: recentDensityTiers,
+            recentSceneKinds: recentSceneKinds
+        )
+        let sceneKind = try pickSceneKind(diversityContext: context, attempt: attempt)
         let densityTier = try pickDensityTier(
             sceneKind: sceneKind,
-            recentDensityTiers: recentDensityTiers,
+            diversityContext: context,
             attempt: attempt
         )
 
+        let candidate: SearchCandidate
         switch scope {
         case .global(let label, let countries):
             let countriesByContinent = Dictionary(grouping: countries, by: \.continent)
             let continent = try globalPlan?.continent(forAttempt: attempt)
                 ?? pickBalancedContinent(
                     countriesByContinent: countriesByContinent,
-                    recentContinents: recentContinents
+                    diversityContext: context
                 )
-            return try pickGlobalCandidate(
-                label: label,
-                countries: countries,
-                continent: continent,
-                sceneKind: sceneKind,
-                densityTier: densityTier,
-                recentCountries: recentCountries
-            )
-        case .countries(let label, let countries, let selectedCountry):
-            let country = try pickWeighted(countries) {
-                countrySamplingWeight(
-                    $0,
-                    availableCountryCount: countries.count,
-                    recentCountries: recentCountries,
-                    sceneKind: sceneKind
+            candidate = try pickCandidateFromPool(diversityContext: context) {
+                try pickGlobalCandidate(
+                    label: label,
+                    countries: countries,
+                    continent: continent,
+                    sceneKind: sceneKind,
+                    densityTier: densityTier,
+                    diversityContext: context
                 )
             }
-            let areaLabel = selectedCountry == nil ? "\(label) · \(country.name)" : country.name
-            return SearchCandidate(
-                requestedLocation: try pickPoint(in: country, sceneKind: sceneKind),
-                sceneKind: sceneKind,
-                densityTier: densityTier,
-                areaLabel: areaLabel,
-                scopeLabel: label,
-                continentLabel: country.continent,
-                countryLabel: country.name
-            )
+        case .countries(let label, let countries, let selectedCountry):
+            candidate = try pickCandidateFromPool(diversityContext: context) {
+                let country = try pickWeighted(countries) {
+                    countrySamplingWeight(
+                        $0,
+                        availableCountryCount: countries.count,
+                        diversityContext: context,
+                        sceneKind: sceneKind
+                    )
+                }
+                let areaLabel = selectedCountry == nil ? "\(label) · \(country.name)" : country.name
+                return SearchCandidate(
+                    requestedLocation: try pickPoint(in: country, sceneKind: sceneKind),
+                    sceneKind: sceneKind,
+                    densityTier: densityTier,
+                    areaLabel: areaLabel,
+                    scopeLabel: label,
+                    continentLabel: country.continent,
+                    countryLabel: country.name
+                )
+            }
+        }
+        return explain(candidate, diversityContext: context, attempt: attempt)
+    }
+
+    private static func pickCandidateFromPool(
+        diversityContext: SamplingDiversityContext,
+        makeCandidate: () throws -> SearchCandidate
+    ) throws -> SearchCandidate {
+        let poolSize = 4
+        let candidates = try (0..<poolSize).map { _ in try makeCandidate() }
+        return try pickWeighted(candidates) {
+            candidateNoveltyWeight($0, diversityContext: diversityContext)
         }
     }
 
@@ -483,7 +578,7 @@ public enum SearchSampler {
         continent: String,
         sceneKind: SearchSceneKind,
         densityTier: SearchDensityTier,
-        recentCountries: [String]
+        diversityContext: SamplingDiversityContext
     ) throws -> SearchCandidate {
         let scopedCountries = countries.filter { $0.continent == continent }
         guard !scopedCountries.isEmpty else {
@@ -494,7 +589,7 @@ public enum SearchSampler {
             countrySamplingWeight(
                 $0,
                 availableCountryCount: scopedCountries.count,
-                recentCountries: recentCountries,
+                diversityContext: diversityContext,
                 sceneKind: sceneKind
             )
         }
@@ -651,7 +746,7 @@ public enum SearchSampler {
 
     private static func weightedContinentOrder(
         countriesByContinent: [String: [CountryArea]],
-        recentContinents: [String]
+        diversityContext: SamplingDiversityContext
     ) throws -> [String] {
         var remainingContinents = countriesByContinent.keys.sorted()
         var orderedContinents: [String] = []
@@ -661,7 +756,7 @@ public enum SearchSampler {
                 balancedContinentWeight(
                     continent: $0,
                     availableContinentCount: remainingContinents.count,
-                    recentContinents: recentContinents
+                    diversityContext: diversityContext
                 )
             }
             orderedContinents.append(nextContinent)
@@ -673,13 +768,13 @@ public enum SearchSampler {
 
     private static func pickBalancedContinent(
         countriesByContinent: [String: [CountryArea]],
-        recentContinents: [String]
+        diversityContext: SamplingDiversityContext
     ) throws -> String {
         try pickWeighted(countriesByContinent.keys.sorted()) {
             balancedContinentWeight(
                 continent: $0,
                 availableContinentCount: countriesByContinent.count,
-                recentContinents: recentContinents
+                diversityContext: diversityContext
             )
         }
     }
@@ -687,52 +782,54 @@ public enum SearchSampler {
     private static func balancedContinentWeight(
         continent: String,
         availableContinentCount: Int,
-        recentContinents: [String]
+        diversityContext: SamplingDiversityContext
     ) -> Double {
         let baseWeight = primaryWorldContinents.contains(continent) ? 1.0 : antarcticaWorldWeight
+        let config = diversityContext.config
         let recentCounts = Dictionary(
-            grouping: recentContinents.prefix(recentContinentWindow),
+            grouping: diversityContext.recentContinents.prefix(recentContinentWindow),
             by: { $0 }
         ).mapValues(\.count)
         let consideredRecentCount = recentCounts.values.reduce(0, +)
-        guard consideredRecentCount > 0 else {
-            return baseWeight
+        var adjustedWeight = baseWeight * config.continentMultipliers[continent, default: 1]
+        if consideredRecentCount > 0 {
+            let expectedCount = Double(consideredRecentCount) / Double(max(1, availableContinentCount))
+            let overrepresentedCount = max(0, Double(recentCounts[continent, default: 0]) - expectedCount)
+            adjustedWeight /= (1 + overrepresentedCount * config.recentContinentPenalty)
         }
-
-        let expectedCount = Double(consideredRecentCount) / Double(max(1, availableContinentCount))
-        let overrepresentedCount = max(0, Double(recentCounts[continent, default: 0]) - expectedCount)
-        return baseWeight / (1 + overrepresentedCount * recentContinentPenalty)
+        return flooredWeight(adjustedWeight, base: baseWeight, config: config)
     }
 
     private static func pickDensityTier(
         sceneKind: SearchSceneKind,
-        recentDensityTiers: [SearchDensityTier],
+        diversityContext: SamplingDiversityContext,
         attempt: Int
     ) throws -> SearchDensityTier {
         try pickWeighted(SearchDensityTier.allCases) {
-            densityTierWeight($0, sceneKind: sceneKind, recentDensityTiers: recentDensityTiers, attempt: attempt)
+            densityTierWeight($0, sceneKind: sceneKind, diversityContext: diversityContext, attempt: attempt)
         }
     }
 
     private static func densityTierWeight(
         _ tier: SearchDensityTier,
         sceneKind: SearchSceneKind,
-        recentDensityTiers: [SearchDensityTier],
+        diversityContext: SamplingDiversityContext,
         attempt: Int
     ) -> Double {
         let baseWeight = densityTierBaseWeight(tier, sceneKind: sceneKind, attempt: attempt)
+        let config = diversityContext.config
         let recentCounts = Dictionary(
-            grouping: recentDensityTiers.prefix(recentDensityWindow),
+            grouping: diversityContext.recentDensityTiers.prefix(recentDensityWindow),
             by: { $0 }
         ).mapValues(\.count)
         let consideredRecentCount = recentCounts.values.reduce(0, +)
-        guard consideredRecentCount > 0 else {
-            return baseWeight
+        var adjustedWeight = baseWeight
+        if consideredRecentCount > 0 {
+            let expectedCount = Double(consideredRecentCount) / Double(SearchDensityTier.allCases.count)
+            let overrepresentedCount = max(0, Double(recentCounts[tier, default: 0]) - expectedCount)
+            adjustedWeight /= (1 + overrepresentedCount * config.recentDensityPenalty)
         }
-
-        let expectedCount = Double(consideredRecentCount) / Double(SearchDensityTier.allCases.count)
-        let overrepresentedCount = max(0, Double(recentCounts[tier, default: 0]) - expectedCount)
-        return baseWeight / (1 + overrepresentedCount * recentDensityPenalty)
+        return flooredWeight(adjustedWeight, base: baseWeight, config: config)
     }
 
     private static func densityTierBaseWeight(
@@ -770,77 +867,235 @@ public enum SearchSampler {
     }
 
     private static func pickSceneKind(
-        recentSceneKinds: [SearchSceneKind],
+        diversityContext: SamplingDiversityContext,
         attempt: Int
     ) throws -> SearchSceneKind {
         try pickWeighted(SearchSceneKind.allCases) {
-            sceneKindWeight($0, recentSceneKinds: recentSceneKinds, attempt: attempt)
+            sceneKindWeight($0, diversityContext: diversityContext, attempt: attempt)
         }
     }
 
     private static func sceneKindWeight(
         _ sceneKind: SearchSceneKind,
-        recentSceneKinds: [SearchSceneKind],
+        diversityContext: SamplingDiversityContext,
         attempt: Int
     ) -> Double {
         let baseWeight = sceneKindBaseWeight(sceneKind, attempt: attempt)
+        let config = diversityContext.config
+        var adjustedWeight = baseWeight * config.sceneMultipliers[sceneKind.rawValue, default: 1]
         let recentCounts = Dictionary(
-            grouping: recentSceneKinds.prefix(recentSceneWindow),
+            grouping: diversityContext.recentSceneKinds.prefix(recentSceneWindow),
             by: { $0 }
         ).mapValues(\.count)
         let consideredRecentCount = recentCounts.values.reduce(0, +)
-        guard consideredRecentCount > 0 else {
-            return baseWeight
+        if consideredRecentCount > 0 {
+            let expectedCount = Double(consideredRecentCount) / Double(SearchSceneKind.allCases.count)
+            let overrepresentedCount = max(0, Double(recentCounts[sceneKind, default: 0]) - expectedCount)
+            adjustedWeight /= (1 + overrepresentedCount * config.recentScenePenalty)
         }
 
-        let expectedCount = Double(consideredRecentCount) / Double(SearchSceneKind.allCases.count)
-        let overrepresentedCount = max(0, Double(recentCounts[sceneKind, default: 0]) - expectedCount)
-        return baseWeight / (1 + overrepresentedCount * recentScenePenalty)
+        let recent10 = Array(diversityContext.recentSceneKinds.prefix(10))
+        let recent10Same = recent10.filter { $0 == sceneKind }.count
+        if recent10Same >= 3 {
+            adjustedWeight /= (1 + Double(recent10Same - 2) * config.recentScenePenalty * 1.8)
+        }
+        if recent10.first == sceneKind {
+            adjustedWeight /= 1.7
+        }
+
+        let recent10NonCity = recent10.filter { isNonCity($0) }.count
+        if recent10NonCity >= 5, isNonCity(sceneKind) {
+            adjustedWeight /= config.nonCityClusterPenalty
+        }
+
+        let recent50 = Array(diversityContext.recentSceneKinds.prefix(50))
+        if !recent50.isEmpty {
+            let cityShare = Double(recent50.filter { $0 == .city }.count) / Double(recent50.count)
+            let target = clamped(config.targetCityShare, min: 0.1, max: 0.7)
+            if sceneKind == .city, cityShare < target {
+                adjustedWeight *= 1 + min(1.2, (target - cityShare) * 3.0)
+            } else if sceneKind == .city, cityShare > target + 0.08 {
+                adjustedWeight /= 1 + min(0.8, (cityShare - target) * 2.0)
+            } else if sceneKind != .city, cityShare < target - 0.08 {
+                adjustedWeight /= 1 + min(0.6, (target - cityShare) * 1.4)
+            }
+        }
+
+        let feedback = diversityContext.feedback
+        let influence = max(0, config.feedbackInfluence)
+        if sceneKind == .city {
+            adjustedWeight *= 1 + Double(feedback.recentCount(.moreCity)) * influence
+        }
+        if sceneKind == .road || sceneKind == .remote {
+            adjustedWeight /= 1 + Double(feedback.recentCount(.tooManyRoads)) * influence
+        }
+        let likedSceneCount = feedback.recentLikedSceneCount(sceneKind)
+        if likedSceneCount > 0 {
+            adjustedWeight *= 1 + min(0.5, Double(likedSceneCount) * influence * 0.5)
+        }
+
+        return flooredWeight(adjustedWeight, base: baseWeight, config: config)
     }
 
     private static func sceneKindBaseWeight(_ sceneKind: SearchSceneKind, attempt: Int) -> Double {
         if attempt <= 3 {
             switch sceneKind {
             case .city:
-                return 0.42
+                return 0.38
             case .town:
-                return 0.26
+                return 0.27
             case .road:
-                return 0.22
+                return 0.23
             case .remote:
-                return 0.10
+                return 0.12
             }
         }
 
         if attempt <= 8 {
             switch sceneKind {
             case .city:
-                return 0.30
+                return 0.35
             case .town:
-                return 0.24
+                return 0.25
             case .road:
-                return 0.30
+                return 0.27
             case .remote:
-                return 0.16
+                return 0.13
             }
         }
 
         switch sceneKind {
         case .city:
-            return 0.18
+            return 0.32
         case .town:
-            return 0.18
+            return 0.22
         case .road:
-            return 0.44
+            return 0.32
         case .remote:
-            return 0.20
+            return 0.14
         }
+    }
+
+    private static func candidateNoveltyWeight(
+        _ candidate: SearchCandidate,
+        diversityContext: SamplingDiversityContext
+    ) -> Double {
+        let config = diversityContext.config
+        var weight = 1.0
+        let recent10 = Array(diversityContext.recentHistory.prefix(10))
+
+        let sameSceneCount = recent10.filter { $0.sceneKind == candidate.sceneKind }.count
+        if sameSceneCount >= 3 {
+            weight /= 1 + Double(sameSceneCount - 2) * config.recentScenePenalty
+        }
+        if recent10.first?.sceneKind == candidate.sceneKind {
+            weight /= 1.35
+        }
+
+        if let country = candidate.countryLabel {
+            let sameCountry = recent10.filter { $0.countryLabel == country }
+            if sameCountry.count >= 3 {
+                weight /= 1 + Double(sameCountry.count - 2) * config.recentCountryPenalty
+            }
+            if sameCountry.contains(where: { $0.sceneKind == candidate.sceneKind }) {
+                weight /= 1.25
+            }
+        }
+
+        if let nearestDistance = recent10
+            .map({ SearchDensityTier.distanceMeters(from: candidate.requestedLocation, to: $0.location) })
+            .min() {
+            if nearestDistance < 50_000 {
+                weight /= 2.0
+            } else if nearestDistance < 200_000 {
+                weight /= 1.35
+            } else if nearestDistance > 1_500_000 {
+                weight *= 1.12
+            }
+        }
+
+        return flooredWeight(weight, base: 1, config: config)
+    }
+
+    private static func explain(
+        _ candidate: SearchCandidate,
+        diversityContext: SamplingDiversityContext,
+        attempt: Int
+    ) -> SearchCandidate {
+        let config = diversityContext.config
+        var details: [String] = []
+        let recent10Scenes = Array(diversityContext.recentSceneKinds.prefix(10))
+        let sameSceneCount = recent10Scenes.filter { $0 == candidate.sceneKind }.count
+        if sameSceneCount >= 3 {
+            details.append("Recent \(candidate.sceneKind.label.lowercased()) starts were reduced after \(sameSceneCount) in the last 10.")
+        }
+        if recent10Scenes.filter({ isNonCity($0) }).count >= 5, candidate.sceneKind == .city {
+            details.append("Recent non-city scenes were high, so city starts received a balancing boost.")
+        }
+
+        let recent50Scenes = Array(diversityContext.recentSceneKinds.prefix(50))
+        if !recent50Scenes.isEmpty {
+            let cityShare = Double(recent50Scenes.filter { $0 == .city }.count) / Double(recent50Scenes.count)
+            if candidate.sceneKind == .city, cityShare < config.targetCityShare {
+                details.append("City share was below the \(Int(config.targetCityShare * 100))% target.")
+            }
+        }
+
+        if let country = candidate.countryLabel {
+            let recent10CountryCount = diversityContext.recentCountries.prefix(10).filter { $0 == country }.count
+            if recent10CountryCount >= 2 {
+                details.append("\(country) appeared \(recent10CountryCount) times in the last 10, so country repetition was penalized.")
+            }
+        }
+
+        if let nearestDistance = diversityContext.recentHistory.prefix(10)
+            .map({ SearchDensityTier.distanceMeters(from: candidate.requestedLocation, to: $0.location) })
+            .min() {
+            if nearestDistance < 200_000 {
+                details.append("A nearby recent start was penalized to preserve the shuffle feel.")
+            } else if nearestDistance > 1_500_000 {
+                details.append("This start is far from recent places, improving shuffle variety.")
+            }
+        }
+
+        if diversityContext.feedback.recentCount(.tooManyRoads) > 0,
+           candidate.sceneKind == .city || candidate.sceneKind == .town {
+            details.append("Recent road feedback lowered road/remote weight.")
+        }
+        if diversityContext.feedback.recentCount(.moreCity) > 0, candidate.sceneKind == .city {
+            details.append("Recent feedback asked for more city starts.")
+        }
+        if let source = config.source {
+            details.append("Sampler config source: \(source).")
+        }
+
+        if details.isEmpty {
+            details.append("Balanced recent scene, country, distance, and long-term variety.")
+        }
+
+        var candidate = candidate
+        candidate.selectionReasonSummary = details[0]
+        candidate.selectionReasonDetails = details + ["Metadata attempt \(attempt) used \(candidate.densityTier.rawValue) radius (\(candidate.searchRadius)m)."]
+        return candidate
+    }
+
+    private static func isNonCity(_ sceneKind: SearchSceneKind) -> Bool {
+        sceneKind != .city
+    }
+
+    private static func flooredWeight(_ weight: Double, base: Double, config: SamplerConfig) -> Double {
+        let floorMultiplier = clamped(config.minimumWeightMultiplier, min: 0.01, max: 0.5)
+        return max(max(0, weight), max(0.0001, base * floorMultiplier))
+    }
+
+    private static func clamped(_ value: Double, min lowerBound: Double, max upperBound: Double) -> Double {
+        Swift.min(upperBound, Swift.max(lowerBound, value))
     }
 
     private static func countrySamplingWeight(
         _ country: CountryArea,
         availableCountryCount: Int,
-        recentCountries: [String],
+        diversityContext: SamplingDiversityContext,
         sceneKind: SearchSceneKind
     ) -> Double {
         // Blend equal-country sampling with softened area and population signals so large countries do not dominate.
@@ -860,18 +1115,40 @@ public enum SearchSampler {
             sceneSignal = max(0.35, 1.4 - min(1.0, densitySignal * 0.16))
         }
         let baseWeight = (1 + areaSignal + populationSignal + densitySignal * 0.35) * sceneSignal
-        let recentCounts = Dictionary(
-            grouping: recentCountries.prefix(recentCountryWindow),
-            by: { $0 }
-        ).mapValues(\.count)
+        let config = diversityContext.config
+        var adjustedWeight = baseWeight * config.countryMultipliers[country.name, default: 1]
+        let recentCountries = diversityContext.recentCountries
+        let recentCounts = Dictionary(grouping: recentCountries.prefix(recentCountryWindow), by: { $0 }).mapValues(\.count)
         let consideredRecentCount = recentCounts.values.reduce(0, +)
-        guard consideredRecentCount > 0 else {
-            return baseWeight
+        if consideredRecentCount > 0 {
+            let expectedCount = Double(consideredRecentCount) / Double(max(1, availableCountryCount))
+            let overrepresentedCount = max(0, Double(recentCounts[country.name, default: 0]) - expectedCount)
+            adjustedWeight /= (1 + overrepresentedCount * config.recentCountryPenalty)
         }
 
-        let expectedCount = Double(consideredRecentCount) / Double(max(1, availableCountryCount))
-        let overrepresentedCount = max(0, Double(recentCounts[country.name, default: 0]) - expectedCount)
-        return baseWeight / (1 + overrepresentedCount * recentCountryPenalty)
+        let recent10Same = recentCountries.prefix(10).filter { $0 == country.name }.count
+        if recent10Same >= 3 {
+            adjustedWeight /= (1 + Double(recent10Same - 2) * config.recentCountryPenalty * 2.5)
+        } else if recent10Same == 2 {
+            adjustedWeight /= 1.35
+        }
+
+        if let latestSameCountry = diversityContext.recentHistory.first(where: { $0.countryLabel == country.name }),
+           let latestSceneKind = latestSameCountry.sceneKind,
+           latestSceneKind != sceneKind {
+            adjustedWeight *= 1.18
+        }
+
+        let totalVisits = diversityContext.allHistory.compactMap(\.countryLabel).count
+        if totalVisits > 0 {
+            let countryVisits = diversityContext.allHistory.filter { $0.countryLabel == country.name }.count
+            let expectedVisits = Double(totalVisits) / Double(max(1, availableCountryCount))
+            if Double(countryVisits) < expectedVisits {
+                adjustedWeight *= 1 + min(config.longTermExplorationBoost, (expectedVisits - Double(countryVisits)) * 0.08)
+            }
+        }
+
+        return flooredWeight(adjustedWeight, base: baseWeight, config: config)
     }
 }
 
