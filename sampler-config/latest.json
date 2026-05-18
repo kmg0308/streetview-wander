@@ -10,10 +10,10 @@
   "recentDensityPenalty": 0.85,
   "recentScenePenalty": 1.25,
   "sceneMultipliers": {
-    "remote": 0.8924,
-    "road": 0.97
+    "remote": 0.8372,
+    "road": 0.91
   },
   "schemaVersion": 1,
-  "source": "telemetry aggregate generated 2026-05-17T12:25:06.951915Z",
+  "source": "telemetry aggregate generated 2026-05-18T12:07:39.404546Z",
   "targetCityShare": 0.35
 }
