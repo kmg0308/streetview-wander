@@ -1,42 +1,42 @@
 {
-  "eventCount": 1002,
+  "eventCount": 1017,
   "eventsByKind": {
-    "candidateAttempted": 458,
-    "configLoaded": 7,
-    "feedbackGiven": 15,
-    "metadataResult": 458,
-    "visitRecorded": 64
+    "candidateAttempted": 463,
+    "configLoaded": 9,
+    "feedbackGiven": 16,
+    "metadataResult": 463,
+    "visitRecorded": 66
   },
   "feedbackByKind": {
-    "liked": 8,
+    "liked": 9,
     "tooManyRoads": 3,
     "tooSimilar": 4
   },
-  "feedbackCount": 15,
-  "generatedAt": "2026-05-26T07:15:39.439555Z",
+  "feedbackCount": 16,
+  "generatedAt": "2026-05-26T07:21:14.557805Z",
   "metadataByStatus": {
-    "OK": 64,
-    "ZERO_RESULTS": 394
+    "OK": 66,
+    "ZERO_RESULTS": 397
   },
-  "metadataCount": 458,
+  "metadataCount": 463,
   "schemaVersion": 1,
   "visitAttempts": {
-    "average": 7.156,
+    "average": 7.015,
     "max": 31
   },
-  "visitCount": 64,
+  "visitCount": 66,
   "visitsByContinent": {
     "Africa": 12,
-    "Asia": 9,
+    "Asia": 10,
     "Europe": 12,
     "North America": 12,
     "Oceania": 8,
-    "South America": 11
+    "South America": 12
   },
   "visitsByCountry": {
     "Australia": 6,
     "Austria": 1,
-    "Brazil": 1,
+    "Brazil": 2,
     "Canada": 2,
     "Chile": 1,
     "Colombia": 2,
@@ -64,6 +64,7 @@
     "Mexico": 4,
     "New Zealand": 2,
     "Nigeria": 2,
+    "Palestine": 1,
     "Paraguay": 2,
     "Peru": 3,
     "Puerto Rico": 1,
@@ -75,8 +76,8 @@
     "United States of America": 1
   },
   "visitsBySceneKind": {
-    "city": 23,
-    "remote": 10,
+    "city": 24,
+    "remote": 11,
     "road": 13,
     "town": 18
   }
