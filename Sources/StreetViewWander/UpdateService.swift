@@ -505,9 +505,10 @@ struct UpdateSheetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("Updates")
                         .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(WanderTheme.primaryText)
                     Text(statusTitle)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(statusColor)
@@ -518,46 +519,62 @@ struct UpdateSheetView: View {
                 } label: {
                     Image(systemName: "xmark")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(WanderCompactIconButtonStyle())
+                .accessibilityLabel("Close")
             }
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     versionColumn("Current", UpdateService.installedVersion())
-                    Divider()
+                    Rectangle()
+                        .fill(WanderTheme.subtleBorder)
+                        .frame(width: 1)
                     versionColumn("Available", availableVersionText)
                 }
                 Text(updates.statusText)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WanderTheme.secondaryText)
                     .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(14)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+            .wanderSurface()
 
             HStack(spacing: 10) {
                 if updates.isChecking || updates.isDownloading {
                     ProgressView()
                         .scaleEffect(0.72)
                 }
-                Button("Check for Updates") {
+                Button {
                     updates.checkLatestRelease(silent: false)
+                } label: {
+                    Label("Check for Updates", systemImage: "arrow.clockwise")
                 }
+                .buttonStyle(WanderPillButtonStyle())
                 .disabled(updates.isChecking || updates.isDownloading)
+                .accessibilityLabel("Check for Updates")
 
                 Spacer()
 
                 if updates.availability?.isAvailable == true || updates.downloadedFileIsInstallable {
-                    Button("Install and Relaunch") {
+                    Button {
                         updates.updateNow()
+                    } label: {
+                        Label("Install and Relaunch", systemImage: "arrow.down.circle")
                     }
+                    .buttonStyle(WanderPillButtonStyle(prominent: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(updates.isChecking || updates.isDownloading)
+                    .accessibilityLabel("Install and Relaunch")
                 }
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(width: 452)
+        .foregroundStyle(WanderTheme.primaryText)
+        .background {
+            WanderBackdrop()
+        }
         .onAppear {
             updates.checkIfConfigured(silent: true)
         }
@@ -585,17 +602,18 @@ struct UpdateSheetView: View {
 
     private var statusColor: Color {
         updates.availability?.isAvailable == true || updates.downloadedFileIsInstallable
-            ? Color.primary
-            : Color.secondary
+            ? WanderTheme.accent
+            : WanderTheme.secondaryText
     }
 
     private func versionColumn(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WanderTheme.secondaryText)
             Text(value)
                 .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(WanderTheme.primaryText)
                 .monospacedDigit()
                 .lineLimit(1)
                 .truncationMode(.middle)

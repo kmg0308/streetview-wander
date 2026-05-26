@@ -12,7 +12,7 @@ struct StreetViewWanderApp: App {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(updates)
-                .frame(minWidth: 980, minHeight: 680)
+                .frame(minWidth: 1040, minHeight: 700)
                 .task {
                     updates.startAutoChecks()
                     await model.refreshSamplerConfig()
@@ -40,29 +40,22 @@ struct ContentView: View {
     @EnvironmentObject private var updates: UpdateModel
 
     var body: some View {
-        ZStack {
-            StreetViewWebView(
-                panorama: model.panorama,
-                browserAPIKey: model.browserAPIKey
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
+            appHeader
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
 
-            VStack(spacing: 0) {
-                topBar
-                Spacer()
-                HStack {
-                    bottomStatus
-                    Spacer(minLength: 340)
-                }
-            }
-            .padding(16)
-
-            if model.activePanel != .none {
-                sidePanel
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
+            contentArea
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 22)
         }
-        .background(Color(red: 0.08, green: 0.09, blue: 0.08))
+        .foregroundStyle(WanderTheme.primaryText)
+        .background {
+            WanderBackdrop()
+                .ignoresSafeArea()
+        }
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView()
                 .environmentObject(model)
@@ -73,77 +66,60 @@ struct ContentView: View {
         }
     }
 
-    private var topBar: some View {
+    private var appHeader: some View {
         HStack(spacing: 10) {
-            toolbarGroup {
-                Button {
-                    withAnimation(.snappy) {
-                        model.activePanel = model.activePanel == .history ? .none : .history
-                    }
-                } label: {
-                    Label("History", systemImage: "clock.arrow.circlepath")
+            HStack(spacing: 11) {
+                ZStack {
+                    WanderControlChrome(cornerRadius: WanderTheme.compactControlRadius)
+                    Image(systemName: "globe.americas.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(WanderTheme.accent)
                 }
-                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .history))
+                .frame(width: 32, height: 32)
 
-                Button {
-                    withAnimation(.snappy) {
-                        model.activePanel = model.activePanel == .details ? .none : .details
-                    }
-                } label: {
-                    Label("Details", systemImage: "info.circle")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("StreetView Wander")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(WanderTheme.primaryText)
+                    Text(headerSubtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(WanderTheme.secondaryText)
+                        .lineLimit(1)
                 }
-                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .details))
+                .frame(minWidth: 155, alignment: .leading)
             }
 
-            toolbarGroup {
-                Button {
-                    withAnimation(.snappy) {
-                        model.activePanel = model.activePanel == .scope ? .none : .scope
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Text("Scope")
-                            .foregroundStyle(.secondary)
-                        Text(model.selectedScopeLabel)
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(OverlayButtonStyle(isActive: model.activePanel == .scope))
-                .frame(width: 190)
+            Spacer(minLength: 8)
+
+            panelSelector
+                .frame(width: 300)
+
+            Button {
+                model.isSettingsPresented = true
+            } label: {
+                Image(systemName: "key")
             }
+            .buttonStyle(WanderIconButtonStyle(prominent: !model.hasBrowserAPIKey || !model.hasMetadataAPIKey))
+            .help("API key settings")
+            .accessibilityLabel("API key settings")
 
-            toolbarGroup {
-                Button {
-                    model.isSettingsPresented = true
-                } label: {
-                    Image(systemName: "key")
-                }
-                .buttonStyle(IconOverlayButtonStyle())
-                .help("API key settings")
-                .accessibilityLabel("API key settings")
+            metadataUsageBadge
 
-                metadataUsageBadge
-
-                if let label = updates.updateLabel {
-                    Button {
-                        updates.updateNow()
-                    } label: {
-                        Label(label, systemImage: "arrow.down.circle")
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(OverlayButtonStyle(isActive: true))
-                    .frame(maxWidth: 150)
+            Button {
+                if updates.updateLabel != nil {
+                    updates.updateNow()
                 } else {
-                    Button {
-                        updates.isSheetPresented = true
-                    } label: {
-                        Image(systemName: "arrow.down.circle")
-                    }
-                    .buttonStyle(IconOverlayButtonStyle())
-                    .help("Updates")
-                    .accessibilityLabel("Updates")
+                    updates.isSheetPresented = true
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: updates.updateLabel == nil ? "arrow.down.circle" : "arrow.down.circle.fill")
+                    Text(updates.updateLabel == nil ? "Updates" : "Update")
                 }
             }
+            .buttonStyle(WanderPillButtonStyle(prominent: updates.updateLabel != nil))
+            .help(updates.updateLabel ?? "Updates")
+            .accessibilityLabel(updates.updateLabel ?? "Updates")
 
             Button {
                 model.randomPlace()
@@ -151,55 +127,171 @@ struct ContentView: View {
                 Label(model.isLoading ? "Finding..." : "Random place", systemImage: "shuffle")
             }
             .disabled(model.isLoading)
-            .buttonStyle(PrimaryOverlayButtonStyle())
+            .buttonStyle(WanderPillButtonStyle(prominent: true))
+            .accessibilityLabel(model.isLoading ? "Finding random place" : "Random place")
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .wanderSurface(elevated: true, radius: 18)
     }
 
-    private func toolbarGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private var panelSelector: some View {
         HStack(spacing: 4) {
-            content()
+            panelButton(.history, title: "History", icon: "clock.arrow.circlepath")
+            panelButton(.details, title: "Details", icon: "info.circle")
+            panelButton(.scope, title: "Scope", icon: "scope")
         }
-        .padding(4)
-        .background(Color(red: 0.07, green: 0.08, blue: 0.08).opacity(0.86), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.12))
-        )
+        .padding(3)
+        .frame(height: WanderTheme.buttonHeight)
+        .background {
+            WanderControlChrome()
+        }
+    }
+
+    private func panelButton(_ panel: WanderModel.Panel, title: String, icon: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                model.activePanel = model.activePanel == panel ? .none : panel
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+            }
+        }
+        .buttonStyle(WanderSegmentButtonStyle(selected: model.activePanel == panel))
+        .accessibilityLabel(title)
+    }
+
+    private var headerSubtitle: String {
+        if let panorama = model.panorama {
+            if let scene = panorama.sceneKind?.label {
+                return "\(panorama.areaLabel) - \(scene)"
+            }
+            return panorama.areaLabel
+        }
+        return "\(model.selectedScopeLabel) scope"
+    }
+
+    private var contentArea: some View {
+        HStack(alignment: .top, spacing: 18) {
+            mapStage
+
+            if model.activePanel != .none {
+                sidePanel
+                    .frame(width: 360)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.16), value: panelIsVisible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var panelIsVisible: Bool {
+        model.activePanel != .none
+    }
+
+    private var mapStage: some View {
+        ZStack(alignment: .bottomLeading) {
+            StreetViewWebView(
+                panorama: model.panorama,
+                browserAPIKey: model.browserAPIKey
+            )
+            .clipShape(RoundedRectangle(cornerRadius: WanderTheme.cardRadius, style: .continuous))
+
+            bottomStatus
+                .padding(16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .wanderSurface(elevated: true)
     }
 
     private var bottomStatus: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                if !model.hasBrowserAPIKey || !model.hasMetadataAPIKey {
-                    Button("Add API Keys") {
-                        model.isSettingsPresented = true
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: statusIcon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(statusTint)
+                .frame(width: 18, height: 18)
+
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(statusTitle)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(WanderTheme.primaryText)
+                        Text(model.errorText ?? model.statusText)
+                            .lineLimit(2)
+                            .font(.system(size: 12))
+                            .foregroundStyle(model.errorText == nil ? WanderTheme.secondaryText : WanderTheme.danger)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(PrimaryOverlayButtonStyle())
+                    .layoutPriority(1)
+
+                    if !model.hasBrowserAPIKey || !model.hasMetadataAPIKey {
+                        Button {
+                            model.isSettingsPresented = true
+                        } label: {
+                            Label("Add API Keys", systemImage: "key")
+                        }
+                        .buttonStyle(WanderPillButtonStyle(prominent: true))
+                        .accessibilityLabel("Add API Keys")
+                    }
                 }
 
-                Text(model.errorText ?? model.statusText)
-                    .lineLimit(2)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(model.errorText == nil ? Color.white.opacity(0.86) : Color(red: 1, green: 0.82, blue: 0.76))
-                    .layoutPriority(1)
-            }
+                if let reason = model.selectionReasonSummary, model.errorText == nil {
+                    Text(reason)
+                        .lineLimit(2)
+                        .font(.system(size: 12))
+                        .foregroundStyle(WanderTheme.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
-            if let reason = model.selectionReasonSummary, model.errorText == nil {
-                Text(reason)
-                    .lineLimit(2)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.70))
-            }
-
-            if model.panorama != nil, !model.isLoading {
-                feedbackBar
+                if model.panorama != nil, !model.isLoading {
+                    feedbackBar
+                }
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
-        .frame(maxWidth: 620, alignment: .leading)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 660, alignment: .leading)
+        .wanderSurface(elevated: true)
+    }
+
+    private var statusTitle: String {
+        if model.errorText != nil {
+            return "Needs attention"
+        }
+        if model.isLoading {
+            return "Finding panorama"
+        }
+        if model.panorama != nil {
+            return "Current start"
+        }
+        return "Ready"
+    }
+
+    private var statusIcon: String {
+        if model.errorText != nil {
+            return "exclamationmark.triangle"
+        }
+        if model.isLoading {
+            return "arrow.triangle.2.circlepath"
+        }
+        if model.panorama != nil {
+            return "location.viewfinder"
+        }
+        return "sparkles"
+    }
+
+    private var statusTint: Color {
+        if model.errorText != nil {
+            return WanderTheme.warning
+        }
+        if model.isLoading || model.panorama != nil {
+            return WanderTheme.accent
+        }
+        return WanderTheme.secondaryText
     }
 
     private var feedbackBar: some View {
@@ -217,8 +309,9 @@ struct ContentView: View {
         } label: {
             Label(kind.label, systemImage: icon)
         }
-        .buttonStyle(OverlayButtonStyle(isActive: model.hasFeedback(kind)))
+        .buttonStyle(WanderPillButtonStyle(selected: model.hasFeedback(kind)))
         .help(kind.label)
+        .accessibilityLabel(kind.label)
     }
 
     private var metadataUsageBadge: some View {
@@ -228,10 +321,12 @@ struct ContentView: View {
                 .lineLimit(1)
         }
         .font(.system(size: 12, weight: .bold))
-        .foregroundStyle(.white.opacity(0.78))
+        .foregroundStyle(WanderTheme.secondaryText)
         .padding(.horizontal, 10)
-        .frame(height: 34)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .frame(height: WanderTheme.buttonHeight)
+        .background {
+            WanderControlChrome(cornerRadius: WanderTheme.controlRadius)
+        }
         .help(metadataUsageStatus)
         .accessibilityLabel(metadataUsageStatus)
     }
@@ -251,32 +346,22 @@ struct ContentView: View {
     }
 
     private var sidePanel: some View {
-        HStack {
-            Spacer()
-            Group {
-                switch model.activePanel {
-                case .none:
-                    EmptyView()
-                case .details:
-                    DetailsPanel()
-                case .history:
-                    HistoryPanel()
-                case .scope:
-                    ScopePanel()
-                }
+        Group {
+            switch model.activePanel {
+            case .none:
+                EmptyView()
+            case .details:
+                DetailsPanel()
+            case .history:
+                HistoryPanel()
+            case .scope:
+                ScopePanel()
             }
-            .environmentObject(model)
-            .frame(width: 360)
-            .padding(16)
-            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.14))
-            )
-            .padding(.top, 70)
-            .padding(.trailing, 16)
-            .padding(.bottom, 16)
         }
+        .environmentObject(model)
+        .padding(16)
+        .frame(maxHeight: .infinity)
+        .wanderSurface(elevated: true)
     }
 }
 
@@ -287,31 +372,89 @@ struct ScopePanel: View {
         VStack(alignment: .leading, spacing: 14) {
             panelHeader("Random Scope")
 
-            Picker("Continent", selection: $model.selectedContinentId) {
-                Text("Worldwide").tag("")
-                ForEach(model.locationOptions.continents) { continent in
-                    Text("\(continent.label) (\(continent.countryCount))").tag(continent.id)
+            VStack(alignment: .leading, spacing: 10) {
+                Menu {
+                    selectionButton("Worldwide", isSelected: model.selectedContinentId.isEmpty) {
+                        model.selectedContinentId = ""
+                    }
+                    ForEach(model.locationOptions.continents) { continent in
+                        selectionButton("\(continent.label) (\(continent.countryCount))", isSelected: model.selectedContinentId == continent.id) {
+                            model.selectedContinentId = continent.id
+                        }
+                    }
+                } label: {
+                    WanderFilterMenuLabel(title: "Continent", value: selectedContinentLabel)
                 }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Continent")
+
+                Menu {
+                    selectionButton("All countries", isSelected: model.selectedCountryId.isEmpty) {
+                        model.selectedCountryId = ""
+                    }
+                    ForEach(model.filteredCountries) { country in
+                        selectionButton(country.label, isSelected: model.selectedCountryId == country.id) {
+                            model.selectedCountryId = country.id
+                        }
+                    }
+                } label: {
+                    WanderFilterMenuLabel(title: "Country", value: selectedCountryLabel)
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Country")
             }
 
-            Picker("Country", selection: $model.selectedCountryId) {
-                Text("All countries").tag("")
-                ForEach(model.filteredCountries) { country in
-                    Text(country.label).tag(country.id)
-                }
+            HStack(spacing: 8) {
+                scopeMetric("Active", model.selectedScopeLabel)
+                scopeMetric("Countries", formatCount(model.filteredCountries.count))
             }
+            .padding(14)
+            .wanderSurface()
 
-            Button("Clear Scope") {
+            Button {
                 model.clearScope()
+            } label: {
+                Label("Clear Scope", systemImage: "xmark.circle")
             }
-
-            Text(model.selectedScopeLabel)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+            .buttonStyle(WanderPillButtonStyle())
+            .accessibilityLabel("Clear Scope")
 
             Spacer()
         }
         .panelText()
+    }
+
+    private var selectedContinentLabel: String {
+        model.locationOptions.continents.first(where: { $0.id == model.selectedContinentId })?.label ?? "Worldwide"
+    }
+
+    private var selectedCountryLabel: String {
+        model.locationOptions.countries.first(where: { $0.id == model.selectedCountryId })?.label ?? "All countries"
+    }
+
+    @ViewBuilder
+    private func selectionButton(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if isSelected {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    private func scopeMetric(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(WanderTheme.secondaryText)
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(WanderTheme.primaryText)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -358,23 +501,30 @@ struct DetailsPanel: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Reason details")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WanderTheme.secondaryText)
                             ForEach(Array(model.selectionReasonDetails.enumerated()), id: \.offset) { _, item in
                                 Text(item)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.78))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(WanderTheme.primaryText)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .wanderSurface()
                     }
 
-                    Button("Open in Google Maps") {
+                    Button {
                         NSWorkspace.shared.open(mapsURL(for: panorama))
+                    } label: {
+                        Label("Open in Google Maps", systemImage: "map")
                     }
+                    .buttonStyle(WanderPillButtonStyle())
+                    .accessibilityLabel("Open in Google Maps")
                     .padding(.top, 4)
                 } else {
                     Text("Pick a random place to begin.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WanderTheme.secondaryText)
                 }
 
                 Spacer()
@@ -394,12 +544,18 @@ struct HistoryPanel: View {
                 Spacer()
                 Text("\(model.history.count)")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WanderTheme.secondaryText)
+                    .padding(.horizontal, 9)
+                    .frame(height: 28)
+                    .background {
+                        WanderControlChrome(cornerRadius: WanderTheme.compactControlRadius)
+                    }
             }
 
             if model.history.isEmpty {
                 Text("No random places yet.")
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(WanderTheme.secondaryText)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
@@ -419,28 +575,37 @@ struct HistoryPanel: View {
                 Text(entry.areaLabel)
                     .font(.system(size: 13, weight: .bold))
                     .lineLimit(2)
+                    .foregroundStyle(WanderTheme.primaryText)
                 Spacer()
                 Text(entry.visitedAt, style: .date)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WanderTheme.tertiaryText)
             }
 
             Text("\(formatCoord(entry.location.lat)), \(formatCoord(entry.location.lng))")
                 .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WanderTheme.secondaryText)
 
-            HStack {
-                Button("Revisit") {
+            HStack(spacing: 8) {
+                Button {
                     model.revisit(entry)
+                } label: {
+                    Label("Revisit", systemImage: "arrow.uturn.backward")
                 }
-                Button("Open Maps") {
+                .buttonStyle(WanderPillButtonStyle())
+                .accessibilityLabel("Revisit")
+
+                Button {
                     NSWorkspace.shared.open(mapsURL(for: entry.panorama))
+                } label: {
+                    Label("Open Maps", systemImage: "map")
                 }
+                .buttonStyle(WanderPillButtonStyle())
+                .accessibilityLabel("Open Maps")
             }
-            .font(.system(size: 12, weight: .semibold))
         }
-        .padding(10)
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+        .wanderSurface()
     }
 }
 
@@ -453,12 +618,13 @@ struct SettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text("API Keys")
                         .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(WanderTheme.primaryText)
                     Text("Keys stay on this Mac. They are not bundled into releases.")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WanderTheme.secondaryText)
                 }
                 Spacer()
                 Button {
@@ -466,30 +632,29 @@ struct SettingsView: View {
                 } label: {
                     Image(systemName: "xmark")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(WanderCompactIconButtonStyle())
+                .accessibilityLabel("Close")
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("VITE_GOOGLE_MAPS_API_KEY")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                SecureField("Maps JavaScript API key", text: $draftBrowserAPIKey)
-                    .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 10) {
+                keyField(
+                    "VITE_GOOGLE_MAPS_API_KEY",
+                    placeholder: "Maps JavaScript API key",
+                    text: $draftBrowserAPIKey
+                )
+                keyField(
+                    "GOOGLE_STREET_VIEW_METADATA_API_KEY",
+                    placeholder: "Street View metadata API key",
+                    text: $draftMetadataAPIKey
+                )
             }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("GOOGLE_STREET_VIEW_METADATA_API_KEY")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                SecureField("Street View metadata API key", text: $draftMetadataAPIKey)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            Divider()
+            .padding(14)
+            .wanderSurface()
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Metadata Check Count")
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(WanderTheme.primaryText)
 
                 HStack(spacing: 16) {
                     requestMetric("Total", model.metadataRequestLimit > 0 ? formatCount(model.metadataRequestLimit) : "No limit")
@@ -503,47 +668,81 @@ struct SettingsView: View {
                         .frame(width: 180)
                     Text("0 means no limit")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WanderTheme.secondaryText)
                     Spacer()
-                    Button("Reset Used Count") {
+                    Button {
                         model.resetMetadataRequestUsage()
+                    } label: {
+                        Label("Reset Used Count", systemImage: "arrow.counterclockwise")
                     }
+                    .buttonStyle(WanderPillButtonStyle())
+                    .accessibilityLabel("Reset Used Count")
                 }
             }
-
-            Divider()
+            .padding(14)
+            .wanderSurface()
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Feedback")
                     .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(WanderTheme.primaryText)
 
                 HStack(spacing: 10) {
                     requestMetric("Signals", formatCount(model.feedbackCount))
                     requestMetric("Config", model.samplerConfigSourceLabel)
                     Spacer()
-                    Button("Reset Feedback") {
+                    Button {
                         model.resetFeedback()
+                    } label: {
+                        Label("Reset Feedback", systemImage: "trash")
                     }
+                    .buttonStyle(WanderPillButtonStyle())
+                    .accessibilityLabel("Reset Feedback")
                 }
             }
+            .padding(14)
+            .wanderSurface()
 
             HStack {
-                Button("Import .env") {
+                Button {
                     if model.importEnvFile() {
                         resetDraftKeys()
                     }
+                } label: {
+                    Label("Import .env", systemImage: "square.and.arrow.down")
                 }
+                .buttonStyle(WanderPillButtonStyle())
+                .accessibilityLabel("Import .env")
                 Spacer()
-                Button("Done") {
+                Button {
                     model.saveAPIKeys(browser: draftBrowserAPIKey, metadata: draftMetadataAPIKey)
                     dismiss()
+                } label: {
+                    Text("Done")
                 }
+                .buttonStyle(WanderPillButtonStyle(prominent: true))
                 .keyboardShortcut(.defaultAction)
+                .accessibilityLabel("Done")
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 540)
+        .foregroundStyle(WanderTheme.primaryText)
+        .background {
+            WanderBackdrop()
+        }
         .onAppear(perform: resetDraftKeys)
+    }
+
+    private func keyField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(WanderTheme.secondaryText)
+            SecureField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .tint(WanderTheme.accent)
+        }
     }
 
     private func resetDraftKeys() {
@@ -556,10 +755,12 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WanderTheme.secondaryText)
             Text(value)
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(WanderTheme.primaryText)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -568,19 +769,22 @@ struct SettingsView: View {
 private func panelHeader(_ text: String) -> some View {
     Text(text)
         .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(.white)
+        .foregroundStyle(WanderTheme.primaryText)
 }
 
-private func detail(_ label: String, _ value: String) -> some View {
+@MainActor private func detail(_ label: String, _ value: String) -> some View {
     VStack(alignment: .leading, spacing: 3) {
         Text(label)
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WanderTheme.secondaryText)
         Text(value)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(WanderTheme.primaryText)
             .textSelection(.enabled)
     }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .wanderSurface()
 }
 
 private func formatCoord(_ value: Double) -> String {
@@ -610,76 +814,13 @@ private func mapsURL(for panorama: Panorama) -> URL {
 private struct PanelTextModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .foregroundStyle(.white)
-            .tint(.white)
+            .foregroundStyle(WanderTheme.primaryText)
+            .tint(WanderTheme.accent)
     }
 }
 
 private extension View {
     func panelText() -> some View {
         modifier(PanelTextModifier())
-    }
-}
-
-struct OverlayButtonStyle: ButtonStyle {
-    var isActive = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .bold))
-            .lineLimit(1)
-            .labelStyle(.titleAndIcon)
-            .padding(.horizontal, 12)
-            .frame(height: 34)
-            .foregroundStyle(.white)
-            .background(
-                overlayFill(isPressed: configuration.isPressed),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(isActive ? 0.22 : 0))
-            )
-    }
-
-    private func overlayFill(isPressed: Bool) -> Color {
-        if isActive {
-            return Color.white.opacity(isPressed ? 0.18 : 0.14)
-        }
-        return Color.white.opacity(isPressed ? 0.10 : 0.02)
-    }
-}
-
-struct IconOverlayButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .bold))
-            .frame(width: 34, height: 34)
-            .foregroundStyle(.white)
-            .background(
-                Color.white.opacity(configuration.isPressed ? 0.12 : 0.02),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-    }
-}
-
-struct PrimaryOverlayButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .bold))
-            .lineLimit(1)
-            .labelStyle(.titleAndIcon)
-            .padding(.horizontal, 16)
-            .frame(height: 42)
-            .foregroundStyle(.white)
-            .background(
-                Color(red: 0.08, green: configuration.isPressed ? 0.36 : 0.46, blue: 0.39),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.14))
-            )
-            .shadow(color: .black.opacity(configuration.isPressed ? 0.10 : 0.24), radius: 14, y: 8)
     }
 }

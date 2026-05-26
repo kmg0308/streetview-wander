@@ -90,7 +90,7 @@ struct StreetViewWebView: NSViewRepresentable {
             height: 100%;
             margin: 0;
             overflow: hidden;
-            background: #111817;
+            background: #030407;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           }
           #stage {
@@ -112,11 +112,11 @@ struct StreetViewWebView: NSViewRepresentable {
             min-height: 180px;
             max-width: calc(100vw - 32px);
             max-height: calc(100vh - 96px);
-            border: 1px solid rgba(255,255,255,.18);
+            border: 1px solid rgba(255,255,255,.105);
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 16px 36px rgba(0,0,0,.28);
-            background: #111817;
+            background: #0d1115;
             display: none;
             contain: layout paint;
           }
@@ -185,20 +185,20 @@ struct StreetViewWebView: NSViewRepresentable {
             right: 10px;
             z-index: 3;
             min-height: 36px;
-            border: 0;
+            border: 1px solid rgba(255,255,255,.105);
             border-radius: 8px;
             padding: 0 12px;
-            color: #fff;
-            background: rgba(13,18,17,.86);
+            color: rgba(255,255,255,.94);
+            background: rgba(19,22,26,.92);
             box-shadow: 0 10px 24px rgba(0,0,0,.26);
             font: inherit;
             font-size: 13px;
-            font-weight: 800;
+            font-weight: 600;
             cursor: pointer;
             pointer-events: auto;
           }
           #mapToggle:hover {
-            background: rgba(13,18,17,.96);
+            background: rgba(26,30,36,.96);
           }
           #mapPanel.is-collapsed #mapToggle {
             top: auto;
@@ -213,10 +213,10 @@ struct StreetViewWebView: NSViewRepresentable {
             width: 22px;
             height: 22px;
             border: 0;
-            border-right: 1px solid rgba(255,255,255,.22);
-            border-bottom: 1px solid rgba(255,255,255,.22);
+            border-right: 1px solid rgba(255,255,255,.16);
+            border-bottom: 1px solid rgba(255,255,255,.16);
             border-radius: 8px 0 8px 0;
-            background: rgba(13,18,17,.72);
+            background: rgba(19,22,26,.86);
             cursor: nwse-resize;
           }
           #mapResizeHandle::before {
@@ -226,8 +226,8 @@ struct StreetViewWebView: NSViewRepresentable {
             top: 7px;
             width: 8px;
             height: 8px;
-            border-left: 2px solid rgba(255,255,255,.9);
-            border-top: 2px solid rgba(255,255,255,.9);
+            border-left: 2px solid rgba(255,255,255,.72);
+            border-top: 2px solid rgba(255,255,255,.72);
           }
           #empty {
             position: absolute;
@@ -235,9 +235,9 @@ struct StreetViewWebView: NSViewRepresentable {
             z-index: 1;
             display: grid;
             place-items: center;
-            color: rgba(242,247,244,.84);
+            color: rgba(255,255,255,.62);
             font-size: 18px;
-            font-weight: 700;
+            font-weight: 600;
             text-align: center;
             padding: 24px;
           }
@@ -250,8 +250,8 @@ struct StreetViewWebView: NSViewRepresentable {
             max-width: min(680px, calc(100vw - 32px));
             padding: 12px 14px;
             border-radius: 8px;
-            background: #ffe9e5;
-            color: #6b2319;
+            background: #302018;
+            color: #ffba52;
             font-size: 13px;
             font-weight: 700;
             box-shadow: 0 16px 36px rgba(0,0,0,.22);
