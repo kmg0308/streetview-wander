@@ -1,45 +1,47 @@
 {
-  "eventCount": 1017,
+  "eventCount": 1166,
   "eventsByKind": {
-    "candidateAttempted": 463,
-    "configLoaded": 9,
-    "feedbackGiven": 16,
-    "metadataResult": 463,
-    "visitRecorded": 66
+    "candidateAttempted": 530,
+    "configLoaded": 11,
+    "feedbackGiven": 17,
+    "metadataResult": 530,
+    "visitRecorded": 78
   },
   "feedbackByKind": {
-    "liked": 9,
+    "liked": 10,
     "tooManyRoads": 3,
     "tooSimilar": 4
   },
-  "feedbackCount": 16,
-  "generatedAt": "2026-05-26T07:21:14.557805Z",
+  "feedbackCount": 17,
+  "generatedAt": "2026-05-26T12:55:36.296204Z",
   "metadataByStatus": {
-    "OK": 66,
-    "ZERO_RESULTS": 397
+    "OK": 78,
+    "ZERO_RESULTS": 452
   },
-  "metadataCount": 463,
+  "metadataCount": 530,
   "schemaVersion": 1,
   "visitAttempts": {
-    "average": 7.015,
+    "average": 6.795,
     "max": 31
   },
-  "visitCount": 66,
+  "visitCount": 78,
   "visitsByContinent": {
-    "Africa": 12,
-    "Asia": 10,
-    "Europe": 12,
-    "North America": 12,
-    "Oceania": 8,
-    "South America": 12
+    "Africa": 13,
+    "Asia": 14,
+    "Europe": 14,
+    "North America": 14,
+    "Oceania": 10,
+    "South America": 13
   },
   "visitsByCountry": {
-    "Australia": 6,
+    "Australia": 7,
     "Austria": 1,
     "Brazil": 2,
     "Canada": 2,
     "Chile": 1,
     "Colombia": 2,
+    "Costa Rica": 2,
+    "Cyprus": 1,
     "Czech Republic": 1,
     "Dominican Republic": 1,
     "Ecuador": 2,
@@ -48,12 +50,13 @@
     "Finland": 2,
     "France": 1,
     "Germany": 1,
-    "Ghana": 3,
+    "Ghana": 4,
     "Guatemala": 1,
     "Hungary": 1,
     "India": 3,
     "Indonesia": 1,
-    "Israel": 1,
+    "Israel": 2,
+    "Italy": 1,
     "Jamaica": 1,
     "Japan": 1,
     "Kenya": 1,
@@ -62,23 +65,26 @@
     "Luxembourg": 1,
     "Malaysia": 2,
     "Mexico": 4,
-    "New Zealand": 2,
+    "Netherlands": 1,
+    "New Zealand": 3,
     "Nigeria": 2,
     "Palestine": 1,
     "Paraguay": 2,
-    "Peru": 3,
+    "Peru": 4,
     "Puerto Rico": 1,
     "South Africa": 4,
+    "South Korea": 1,
     "Spain": 1,
     "Sweden": 1,
     "Thailand": 1,
     "Tunisia": 1,
-    "United States of America": 1
+    "United States of America": 1,
+    "Vietnam": 1
   },
   "visitsBySceneKind": {
-    "city": 24,
-    "remote": 11,
+    "city": 31,
+    "remote": 13,
     "road": 13,
-    "town": 18
+    "town": 21
   }
 }
