@@ -1,8 +1,8 @@
 {
-  "eventCount": 1001,
+  "eventCount": 1002,
   "eventsByKind": {
     "candidateAttempted": 458,
-    "configLoaded": 6,
+    "configLoaded": 7,
     "feedbackGiven": 15,
     "metadataResult": 458,
     "visitRecorded": 64
@@ -13,7 +13,7 @@
     "tooSimilar": 4
   },
   "feedbackCount": 15,
-  "generatedAt": "2026-05-18T12:07:39.404546Z",
+  "generatedAt": "2026-05-26T07:15:39.439555Z",
   "metadataByStatus": {
     "OK": 64,
     "ZERO_RESULTS": 394
