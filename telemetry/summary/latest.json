@@ -1,11 +1,11 @@
 {
-  "eventCount": 1166,
+  "eventCount": 1182,
   "eventsByKind": {
-    "candidateAttempted": 530,
-    "configLoaded": 11,
+    "candidateAttempted": 536,
+    "configLoaded": 12,
     "feedbackGiven": 17,
-    "metadataResult": 530,
-    "visitRecorded": 78
+    "metadataResult": 536,
+    "visitRecorded": 81
   },
   "feedbackByKind": {
     "liked": 10,
@@ -13,28 +13,28 @@
     "tooSimilar": 4
   },
   "feedbackCount": 17,
-  "generatedAt": "2026-05-26T12:55:36.296204Z",
+  "generatedAt": "2026-06-01T08:04:37.664134Z",
   "metadataByStatus": {
-    "OK": 78,
-    "ZERO_RESULTS": 452
+    "OK": 81,
+    "ZERO_RESULTS": 455
   },
-  "metadataCount": 530,
+  "metadataCount": 536,
   "schemaVersion": 1,
   "visitAttempts": {
-    "average": 6.795,
+    "average": 6.617,
     "max": 31
   },
-  "visitCount": 78,
+  "visitCount": 81,
   "visitsByContinent": {
     "Africa": 13,
     "Asia": 14,
-    "Europe": 14,
-    "North America": 14,
-    "Oceania": 10,
+    "Europe": 15,
+    "North America": 15,
+    "Oceania": 11,
     "South America": 13
   },
   "visitsByCountry": {
-    "Australia": 7,
+    "Australia": 8,
     "Austria": 1,
     "Brazil": 2,
     "Canada": 2,
@@ -61,7 +61,7 @@
     "Japan": 1,
     "Kenya": 1,
     "Latvia": 1,
-    "Lithuania": 1,
+    "Lithuania": 2,
     "Luxembourg": 1,
     "Malaysia": 2,
     "Mexico": 4,
@@ -71,7 +71,7 @@
     "Palestine": 1,
     "Paraguay": 2,
     "Peru": 4,
-    "Puerto Rico": 1,
+    "Puerto Rico": 2,
     "South Africa": 4,
     "South Korea": 1,
     "Spain": 1,
@@ -82,9 +82,9 @@
     "Vietnam": 1
   },
   "visitsBySceneKind": {
-    "city": 31,
-    "remote": 13,
+    "city": 32,
+    "remote": 14,
     "road": 13,
-    "town": 21
+    "town": 22
   }
 }
